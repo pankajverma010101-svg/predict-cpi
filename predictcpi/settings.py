@@ -34,8 +34,12 @@ SECRET_KEY = 'django-insecure-(#_(w^of6qn16@p_lbsfg7=75(6l)9rd+3bzb)oy$43ax%l4%3
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+# ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "predictcpi-dve2d0dgcua4e3ea.centralindia-01.azurewebsites.net",
+    "localhost",
+    "127.0.0.1"
+]
 
 # Application definition
 
