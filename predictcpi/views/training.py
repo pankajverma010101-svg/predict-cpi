@@ -10,19 +10,36 @@ import urllib.parse
 from sqlalchemy import create_engine
 import numpy as np
 
-# ✅ DB Credentials
-DB_USER = "root"
-DB_PASS = urllib.parse.quote_plus("Pankaj@123")
-DB_HOST = "localhost"
-DB_PORT = "3306"
-DB_NAME = "mycrm_db"
-db_url = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-engine = create_engine(db_url)
+# # ✅ DB Credentials
+# DB_USER = "root"
+# DB_PASS = urllib.parse.quote_plus("Pankaj@123")
+# DB_HOST = "ss"
+# DB_PORT = "3306"
+# DB_NAME = "mycrm_db"
+# db_url = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# engine = create_engine(db_url)
 
-# ✅ Load country mapping
-country_df = pd.read_sql("SELECT sortname, countries_name FROM tb_countries", engine)
-country_df['sortname'] = country_df['sortname'].str.upper()
-country_map = dict(zip(country_df['sortname'], country_df['countries_name']))
+# # ✅ Load country mapping
+# country_df = pd.read_sql("SELECT sortname, countries_name FROM tb_countries", engine)
+# country_df['sortname'] = country_df['sortname'].str.upper()
+# country_map = dict(zip(country_df['sortname'], country_df['countries_name']))
+country_map = {}  # Default empty for production
+
+# ✅ Only run this in local development
+if not os.environ.get('WEBSITE_SITE_NAME'):  
+    DB_USER = "root"
+    DB_PASS = urllib.parse.quote_plus("Pankaj@123")
+    DB_HOST = "localhost"
+    DB_PORT = "3306"
+    DB_NAME = "mycrm_db"
+
+    db_url = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    engine = create_engine(db_url)
+
+    # Load country mapping
+    country_df = pd.read_sql("SELECT sortname, countries_name FROM tb_countries", engine)
+    country_df['sortname'] = country_df['sortname'].str.upper()
+    country_map = dict(zip(country_df['sortname'], country_df['countries_name']))
 
 # ✅ Load models and features
 with_cpi_model = joblib.load('ml/final_cpi_model_with_cpi.pkl')
