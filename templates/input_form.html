@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Testing - Bid details</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/tinymce@4.9.11/tinymce.min.js"></script>
+    <script>
+        tinymce.init({
+            selector: '#userText',
+            plugins: 'table paste',
+            toolbar: 'undo redo | bold italic underline | alignleft aligncenter alignright | table',
+            menubar: false,
+            height: 300
+        });
+    </script>
+
+</head>
+
+<style>
+    .button {
+        border: none;
+        color: white;
+        padding: 15px 32px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        margin: 4px 2px;
+        cursor: pointer;
+        background-color: #04AA6D;
+    }
+</style>
+
+<body>
+
+    <h1>Enter Bid Details</h1>
+    <textarea id="userText" ></textarea>
+    <button class="button" onclick="sendText()">Submit</button>
+
+    <!-- <textarea id="userText" rows="30" cols="200" placeholder="Type something..."></textarea> -->
+
+    <h3> CPI response </h3>
+    <pre id="responseOutput"></pre>
+
+    <script>
+        function sendText() {
+
+            // const userText = document.getElementById('userText').value;
+            const userText = tinymce.get('userText').getContent();  // ✅ Use TinyMCE API here
+
+            fetch('/api/submit-text/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({ text: userText })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status == 'fail') {
+                        document.getElementById('responseOutput').innerText = data.msg + " : " + JSON.stringify(data.message, null, 2)
+                    }
+                    else {
+                        // document.getElementById('responseOutput').innerText = JSON.stringify(data.combined_data, null, 2)
+                        // document.getElementById('responseOutput').innerText = JSON.stringify(data, null, 2)
+                                               const structured = data.structured_data || {};
+const predictedCPI = data.message?.predicted_final_cpi ?? 'N/A';
+
+// Safe fallback function
+function safe(value) {
+    return value ?? 'N/A';  // returns value if not null/undefined, otherwise 'N/A'
+}
+
+// For multiline fields
+function multiline(value) {
+    return safe(value).replace(/\n/g, '<br>');
+}
+
+     document.getElementById('responseOutput').innerHTML =
+  `<div style="font-size: 18px;">` +  // Set desired size here
+    `<b>Status:</b> ${safe(data.status)}<br><br>` +
+    `<b>Market:</b> ${safe(structured.market)}<br>` +
+    `<b>Sample Size (n):</b> ${safe(structured.n)}<br>` +
+    `<b>Target Audience:</b> ${multiline(structured.target_audience)}<br>` +
+    `<b>Industries:</b> ${multiline(structured.industries)}<br>` +
+    `<b>Incidence Rate (IR):</b> ${safe(structured.ir)}<br>` +
+    `<b>Length of Interview (LOI):</b> ${safe(structured.loi)}<br>` +
+    `<b>Devices:</b> ${safe(structured.devices)}<br>` +
+    `<b>Survey Topic:</b> ${safe(structured.survey_topic)}<br>` +
+    `<b>Survey Type:</b> ${safe(structured.survey_type)}<br>` +
+    `<b>Quotas:</b> ${safe(structured.quotas)}<br>` +
+     `<b>Field Time:</b> ${safe(structured.field_time)}<br>` +
+    `<b>Feasibility:</b> ${safe(structured.feasibility)}<br>` +
+    `<div style="padding: 10px; background-color: #e8f5e9; border-left: 5px solid #4caf50;">
+        <strong>Predicted Final CPI:</strong> ${predictedCPI}
+     </div>` +
+  `</div>`;
+                    }
+                });
+        }
+
+        // Get CSRF token (important for POST in Django)
+        function getCSRFToken() {
+            let cookieValue = null;
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.startsWith('csrftoken=')) {
+                    cookieValue = cookie.substring('csrftoken='.length);
+                    break;
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+
+</html>
