@@ -11,10 +11,19 @@ from django.conf import settings
 import msal
 from dotenv import load_dotenv
 import re
+import json
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import time, requests
+
+import random
+import os
+import numpy as np
+import pickle
+import pandas as pd
 import unicodedata
+
+
 
 load_dotenv()
 
@@ -40,24 +49,27 @@ def get_access_token():
         raise Exception("Failed to get access token: " + str(result.get("error_description")))
 
 
+
 key_aliases = {
     "market": [
         "country", "market", "market area", "country of field", "geo", "geos", "geo/s", "country/geos", 
         "country/geo", "markets", "market/region", "geography", "countries", "fieldwork country", 
         "region", "regions", "sample country", "survey market", "survey markets", "city", "cities", "zip code", 
         "zipcode", "postal code", "postalcode", "area", "location", "locations", "Market (geographical location)", 
-        "country(ies)", "country (ies)", "country of field"
+        "country(ies)", "country (ies)", "country of field", "target countries", "target countries", "target country(ies)", "Geographically", "geographical",
     ],
     "methodology": ["methodology", "method"],
-    "industries": ["industries", "industry", "industry and role", "target industry", "target industries"],
+    "industries": ["industries", "industry", "industry and role", "target industry", "target industries", "company industry", "industry vertical",
+                   "sector/industry",],
     "target_audience": ["target", "target audience", "targeting", "audience", "targeting audience", 
-        "targeting details", "targeting detail", "target Definition", "target role", "target role(s)", "target role (s)"
+        "targeting details", "targeting detail", "target Definition", "target role", "target role(s)", "target role (s)",
+        "target group", "target respondent"
     ],
     "n": [
         "required", "n size", "n", "sample", "completes", "req. n", "required n", "n required" ,"needed n", 
         "sample size", "size", "n needed", "needed completes", "needed complete", "number of completes",
         "number of completes(n)", "number of completes (n)", "total n", "sample specs", "sample specification",
-        "Number of completes needed", "no. of completes" ,"needed", "need"
+        "Number of completes needed", "no. of completes" ,"needed", "need", "n-size", "n-needed"
     ],
     "ir": [
         "ir", "incidence", "expected ir", "assumed incidence", "incidence rate", "incidence rate -ir", "estimated ir", 
@@ -70,17 +82,19 @@ key_aliases = {
         "loi (min)", "length of interview (loi)", "length of interview(loi)", "estimated online loi",
         "survey loi", "loi (minutes)", "loi(minutes)", "loi (minute)", "loi(minute)"
     ],
-    "devices": ["devices", "device compatibility", "device", "device/s"],
+    "devices": ["devices", "device compatibility", "device", "device/s", "device type", "device(s)", "devices allowed", 
+                "device allowed", "device agnostic", "device agnostics" , "device(s) agnostic", "device(s) agnostics"],
     "field_time": [
         "field time", "field time(days)", "field time (days)", "field time(day)",
         "field time (day)", "required field time", "required field time(day)", "Business days in field", 
         "days in field" , "required field time (day)", "required field time(days)", "required field time (days)",
-        "field end"
+        "field end", "time in field", "time in field (day)", "time in field (days)",  "required time in field"
     ],
-    "requested_cpi": ["requested cpi", "cpi", "your cpi in usd", "cpc", "requested cpc"],
+    "requested_cpi": ["requested cpi", "cpi", "your cpi in usd", "cpc", "requested cpc", "budget", "cpi needed"],
     "feasibility": ["your feasibility", "feasibility"],
     "quotas": ["quota", "quotas", "quota details", "quota detail", "quotas details", "quotas detail",
-               "specific quotas / mins", "specific quotas", "specific quota", "quotas (soi)", "quotas(soi)", 
+               "specific quotas / mins", "specific quotas", "specific quota", "quotas (soi)", "quotas(soi)", "targetable quota",
+               "targetable quotas"
     ],
     "survey_type": ["survey type"],
     "survey_topic": ["survey topic"],
@@ -91,16 +105,19 @@ key_aliases = {
     ],
     "number_of_open_ends" : [ "number of open ends", "number of open end", "no. of open ends", "no. of open end", 
         "# of open ends", "the number of open ends", "open end", "open ends", "# of Open Ends (OEs)?", 
-        "# of open ends (oes) ?"
+        "# of open ends (oes) ?", "number of open-ended questions", 
     ],
     # "company_size" : ["company size"],
     "field_work" : ["field work"],
-    "eligibility_criteria" : ["eligibility criteria"],
+    "eligibility_criteria" : ["eligibility criteria", "respondent criteria"],
     "from" : ["from"],
     "sent" : ["sent", "date"],
     "to" : ["to"],
     "cc" : ["cc"],
     "subject": ["subject"],
+    "dm_type" : [],
+    "decision_maker" : [],
+    "client_name" : [],
 }
 
 
@@ -150,8 +167,282 @@ known_countries = [
 
     "European Union", # list of international country groups
     "G7", "G20", "BRICS", "OPEC", "SAARC", "NATO",  
+
+    "europe",           # list of continents
+    "africa", "antartica", "asia", "north america", "south america", "oceania",
    
 ]
+
+
+def extract_industries(full_text):
+
+    full_text = remove_any_slash_n(full_text)
+    separators = [":", "-"]
+
+    industries_aliases = key_aliases["industries"]
+
+    # Flatten all other aliases (excluding industries)
+    other_aliases = [alias for key, aliases in key_aliases.items() if key != "industries" for alias in aliases]
+
+    # Build boundary pattern: alias + separator
+    boundary_pattern = (
+        r"(?:" + "|".join(map(re.escape, other_aliases)) + r")\s*(?:" + "|".join(map(re.escape, separators)) + r")"
+    )
+
+    #   alias + separator → capture everything until another "alias + separator"
+    pattern = (
+        r"(?i)(?:" + "|".join(map(re.escape, industries_aliases)) + r")\s*(?:" + "|".join(map(re.escape, separators)) + r")\s*(.*?)(?=" + boundary_pattern + r"|$)"
+    )
+
+    match = re.search(pattern, full_text)
+
+    if not match:
+        return ""
+    
+    result =  match.group(1).strip()
+
+    keys_to_combine = ["n", "loi", "devices" + "field_time" + "requested_cpi" + "feasibility" + "quotas" + "number_of_open_ends" + "eligibility_criteria"]
+
+    combined_list = []
+    for key in keys_to_combine:
+        combined_list.extend(key_aliases.get(key, []))  # .get to avoid KeyError if key missing
+
+    # ⬇️ New part: post-processing
+    stop_phrases = ["thank", "regards", "thanks", "disclaimer", "caution", "kind", "best" ]  # 👈 add any stop strings here
+    stop_phrases =  combined_list + stop_phrases
+
+    # ✅ Fixed stop phrase handling
+    for stop in stop_phrases:
+        m = re.search(r"\b" + re.escape(stop) + r"\b", result, flags=re.IGNORECASE)
+        if m:
+            return result[:m.start()].strip()
+
+    return result
+
+
+
+def classify_household(full_text: str) -> str | None:
+    """
+    Classify text as 'b2c' if it contains household + decision maker keywords,
+    'b2b' if it only contains decision maker keywords,
+    or None if neither is found.
+    """
+
+    dm_keywords = [
+        r"decision\s*maker[s]?",
+        r"decision-?maker[s]?",
+        r"dm[s]?",
+        r"decisionmaker[s]?"
+    ]
+
+    # household exception → B2C
+    b2c_pattern = re.compile(
+        r"(house\s*hold|household)\s*(" + "|".join(dm_keywords) + r")",
+        re.IGNORECASE
+    )
+
+    # General DM keywords → B2B
+    b2b_pattern = re.compile(
+        r"(" + "|".join(dm_keywords) + r")",
+        re.IGNORECASE
+    )
+
+    if b2c_pattern.search(full_text):
+        return "b2c"
+    elif b2b_pattern.search(full_text):
+        return "b2b"
+    else:
+        return None
+
+
+def find_decision_maker(full_text):
+   
+    matches = set()
+    pet_keywords = [ "pet store", "pet shop", "pet" ]
+    pet_matches = [kw for kw in pet_keywords if kw.lower() in full_text.lower()]
+
+    if pet_matches:
+        return "b2b"
+    
+    
+    liquor_keywords = [ "liquor store", "liquor shop", "liquor" ]
+    liquor_matches = [kw for kw in liquor_keywords if kw.lower() in full_text.lower()]
+
+    if liquor_matches:
+        return "b2b"
+
+    b2b_keywords = [ "b2b", "b-2-b", "Business-to-Business", "Business-2-Business", "Business 2 Business", "Manager+ & Sr. Manager", "Director+ & VP+ Titles", "C-level"]
+    b2b_matches = [kw for kw in b2b_keywords if kw.lower() in full_text.lower()]
+
+    if b2b_matches:
+        return "b2b"
+    
+    automotive_keywords = [ "automative dealership", "automotive dealership", "automotive" ]
+    automotive_matches = [kw for kw in automotive_keywords if kw.lower() in full_text.lower()]
+
+    if automotive_matches:
+        return "b2b"
+    
+    result = classify_household(full_text)
+
+    if result == "b2c":
+        return result
+    
+    elif result == "b2b":
+        return result
+
+    b2c_keywords = [  
+        "General Population", "gen. pop", "gen pop.", "gen. pop.", "gen. population", "gen population",
+        "Males and Females of any specific above criteria's", 
+        "Primary Grocery Shoppers", "grocery stores", "grocery shops", "grocery store", "grocery shop",
+        "Household Decision Makers",
+        "Those who have taken loan", "borrowed loan", "loan with", "loan",
+        "Entertainment Survey or those who like to watch TV/ Movie etc.", 
+        "Online Viewing App Subscribers/ streamers like Netflix etc.",
+        "Travellers and those who have taken flight for business or leisure",
+        "High net worth income individuals",
+        "Gamers who play online vs offline games",
+        "Music enthusiasts or music listeners/ Youtube videos",
+        "Vehicle owners or those who intend to buy a vehicle",
+        "Registered Voters",
+        "Luxury Product Buyers bags, watches etc.",
+        "Credit Card Users with Reward Programs",
+        "Smart Home Device Users (Alexa, Google Home, etc.)",
+        "Tech Enthusiasts / Early Adopters of New Gadgets",
+        "Mobile App Users (e.g., finance, health, fitness, etc.)",
+        "Food Delivery App Users (e.g., Uber Eats)", 
+        "Parents of Young Children",
+        "Pet Owners / Pet Care Buyers",
+        "Chronic Illness Patients / Caregivers",
+        "First-Time Parents or pregnant women's",
+        "College/University Students", "college student", "university student",
+    ]
+
+    b2c_matches = [kw for kw in b2c_keywords if kw.lower() in full_text.lower()]
+
+    if b2c_matches:
+        return "b2c"
+
+    b2c_keywords_2 = [  
+        "Mobile phone users",
+        "Parents of 18 YO",
+        "Feale/ Male Shoppers",
+        "Owners of PS5- gamers",
+        "Users of generative AI chatbot platforms",
+        "Music streamers – Spotify, YouTube, or Apple Music",
+        "Multiple language speakers",
+        "Leisure activity/Traverllers",
+        "Parents of kids",
+        "Vehicle owners",
+        "Intenders/purchased vehicle brand within the next 2 years",
+        "Banked individuals aged 18+",
+        "Primary Grocery Shoppers",
+        "House hold Decision makers",
+        "House hold DMs for Insurance",
+        "Homeowners",
+        "Gamers",
+        "Credit card holders",
+        "Students",
+        "Smokers",
+        "Alocohol/Drinkers",
+        "HH DMs for Baby food/milk",
+    ]
+
+    b2c_matches_2 = [kw for kw in b2c_keywords_2 if kw.lower() in full_text.lower()]
+
+    if b2c_matches_2:
+        return "b2c"
+
+    # dm_keywords = ["decision maker", "decision makers", "decision-makers", "decision-maker", "DM" , "DMs", "decisionmaker", "decisionmakers"]
+    # dm_matches = [kw for kw in dm_keywords if kw.lower() in full_text.lower()]
+
+    # if dm_matches:
+    #     matches.add("b2b")    
+
+    return "b2c" 
+
+
+def is_acuity(full_text):
+
+    keywords = ["acuity"]
+    
+    # Find which keywords appear in full_text (case-insensitive)
+    matches = [kw for kw in keywords if kw.lower() in full_text.lower()]
+
+    if matches:
+        return True
+    
+    return False
+
+
+def loi_fallback(full_text):
+
+    # Aliases for minutes (can be extended easily)
+    minute_aliases = ["min", "min.", "mins", "mins.", "minute", "minutes", "-minute", "-minutes", "-min", "-mins"]
+    
+    # Regex:
+    #   (\d+(?:-\d+)?) → matches either a single number (15) or a range (10-15)
+    #   \s*            → optional whitespace
+    #   (?:aliases)\b  → minute aliases
+    pattern = r"(\d+(?:-\d+)?)\s*(?:" + "|".join(minute_aliases) + r")\b"
+    
+    # Find all matches (case-insensitive)
+    matches = re.findall(pattern, full_text, flags=re.IGNORECASE)
+    
+    # Return the last match if found, else None
+    return matches[-1] if matches else ""
+
+
+def ir_fallback(full_text): 
+    # Aliases for percentage
+    percent_aliases = ["%", "percent", "percentage", "-percent", "-percentage"]
+    
+    # Regex to capture number + alias together
+    pattern = r"(\d+(?:\.\d+)?)\s*(?:" + "|".join(map(re.escape, percent_aliases)) + r")"
+    
+    # finditer → keeps the full match, not just digits
+    matches = [m.group(0) for m in re.finditer(pattern, full_text, flags=re.IGNORECASE)]
+    
+    if not matches:
+        return ""
+    
+    else:                                    #[first_match, last_match]
+        # return [matches[0].strip(), matches[-1].strip()]       
+        return matches[0].strip()    
+
+
+
+def clean_ir(text):
+
+    # combine and sort by length (longest first) to avoid partial matches
+    all_aliases = sorted(key_aliases["loi"] + key_aliases["n"], key=len, reverse=True)
+
+    # escape regex special characters in aliases
+    escaped_aliases = [re.escape(alias) for alias in all_aliases]
+
+    # build regex pattern for word boundaries
+    pattern = r"(.*?)\b(" + "|".join(escaped_aliases) + r")\b"
+
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip(" :.-")  # clean extra separators
+    return text.strip()  # if no alias found, return original
+
+
+# def loi_fallback(full_text: str):
+#     # Aliases for minutes (can be extended easily)
+#     minute_aliases = ["min", "mins", "minute", "minutes"]
+    
+#     # Regex:
+#     #   (?<!%) → ensure the number is not immediately after a % (avoid percentages like 10-20%)
+#     #   (\d+(?:-\d+)?) → match either a single number (12) or a range (12-23)
+#     #   \s* → allow optional spaces
+#     #   (?:aliases)\b → require one of the minute aliases
+#     pattern = r"(?<![%\d])(\d+(?:-\d+)?)\s*(?:" + "|".join(minute_aliases) + r")\b"
+    
+#     matches = re.findall(pattern, full_text, flags=re.IGNORECASE)
+    
+#     return matches[-1] if matches else None
 
 
 def extract_key_value_pairs(text):
@@ -290,24 +581,13 @@ def extract_key_value_pairs(text):
     # for case where "Incidence rate - IR : 35%", it will not catch { ir : IR }
     if 'ir' in extracted and not re.search(r'\d', extracted['ir']):
         del extracted['ir']
-
+    
+    # extract first part before a newline
     if "n" in extracted:
         match = re.match(r'^(.*?)(?:\n|$)', extracted['n'])
 
         if match:
             extracted['n'] = match.group(1)   
-    
-    # if "target_audience" in extracted:
-    #     match = re.match(r'^(.*?)(?:\n|$)', extracted['target_audience'])
-
-    #     if match:
-    #         extracted['target_audience'] = match.group(1)  
-    
-    # if "market" in extracted:
-    #     match = re.match(r'^(.*?)(?:\n|$)', extracted['market'])
-
-    #     if match:
-    #         extracted['market'] = match.group(1)  
 
     extracted_2 = extract_key_value_pairs_2(text)
 
@@ -316,6 +596,12 @@ def extract_key_value_pairs(text):
 
     if 'loi' in extracted_2:
         extracted['loi'] =  extracted_2['loi']
+    
+    if 'ir' in extracted_2:
+        extracted['ir'] =  extracted_2['ir']
+
+    if 'ir' in extracted:
+        extracted['ir'] = clean_ir(extracted['ir'])
     
     if 'industries' in extracted_2:
         extracted['industries'] =  extracted_2['industries']
@@ -332,9 +618,40 @@ def extract_key_value_pairs(text):
     if 'eligibility_criteria' in extracted_2:
         extracted['eligibility_criteria'] =  extracted_2['eligibility_criteria']
 
+    if 'loi' not in extracted :
+        temp_loi = loi_fallback(full_text)
+        if temp_loi:
+            extracted['loi'] = temp_loi
+
+    quota_keywords = ["no quotas", "no quota"]
+
+    if any(keyword in full_text for keyword in quota_keywords):
+        if "quotas" not in extracted or not extracted["quotas"].strip():
+            extracted["quotas"] = "no quotas"
+
+    extracted['dm_type'] = find_decision_maker(full_text)
+
+    if extracted["dm_type"] == "b2b" :
+        extracted['decision_maker'] = "Yes"
+    else :
+        extracted['decision_maker'] = "No"
+
+
+    full_industries = extract_industries(full_text)
+    if full_industries and extracted.get('industries', '') and len(full_industries) > len( extracted['industries']):
+        extracted['industries'] = full_industries
+
+    
+    # if full_industries:
+    #     extracted['industries'] = full_industries
+
+    if is_acuity(full_text):
+        extracted['client_name'] = "Acuity"
+    
     extracted = filter_required_keys_only(extracted)
 
     return extracted
+
 
 # only for target - xyz genz - abc, loi - 10-15 min
 def extract_key_value_pairs_2(text):
@@ -844,6 +1161,17 @@ def clean_text(text):
     return text
 
 
+def remove_any_slash_n(text):
+
+    # normalize multiple newlines (\n\n\n) into a single newline (\n)
+    text = re.sub(r'\n+', '\n', text)
+    
+    # To replace all \n (newlines) with space
+    text = re.sub(r'\n', ' ', text)
+
+    return text
+
+
 def extract_device_keywords(text):
 
     # Keywords in order of priority (longest first to avoid substring overlap)
@@ -874,9 +1202,6 @@ def extract_device_keywords(text):
 
 
 def extract_email_metadata(data):
-
-    # Clean line breaks
-    # data = data.replace("\n", " ")
 
     from_raw = data.get("from", "")
     sent_raw = data.get("sent", "")
@@ -915,7 +1240,7 @@ def normalize_dict_keys(dict_list):
             normalized_key = alias_map.get(key_lower, key)  # fallback to original key if not in aliases
             normalized_dict[normalized_key] = value.strip() if isinstance(value, str) else value
 
-        # Optional: special handling for 'n' and 'requested_cpi'
+        # Optional: special handling for 'n' and 'requested_cpi' - used for tables
         if "n" in normalized_dict and isinstance(normalized_dict["n"], str) and "@" in normalized_dict["n"]:
             # match = re.match(r'([\w+]+)\s*@\s*([$€₹]?\d+(?:\.\d{1,2})?)', normalized_dict["n"])
             match = re.match(r'(.+?)\s*@\s*([$€₹]?\d+(?:\.\d{1,2})?)', normalized_dict["n"])  # also handles spaces in btw, eg.) N- 100 per country @ $10.00
@@ -923,7 +1248,6 @@ def normalize_dict_keys(dict_list):
             if match:
                 normalized_dict["n"] = match.group(1)
                 normalized_dict["requested_cpi"] = match.group(2)
-        
 
         normalized_list.append(normalized_dict)
 
@@ -954,7 +1278,7 @@ def filter_required_keys_only(dict_name):
         normalized_key = key.lower().strip() 
         value = value.lower().strip() 
 
-        if value == "" or value == "null":
+        if value == "" or value == "null" or value is None:
             continue
 
         if normalized_key in required_keys:
@@ -976,11 +1300,11 @@ def contains_required_alias_keys(dict_list):
 
 def extract_table_data_from_html(raw_html):
 
-    # soup = BeautifulSoup(raw_html, "html.parser")
-    # tables = soup.find_all("table")
+    soup = BeautifulSoup(raw_html, "html.parser")
+    tables = soup.find_all("table")
 
     # gives all tables after removing the colon from table text
-    tables = remove_separator_from_table(raw_html)
+    # tables = remove_separator_from_table(raw_html)
 
     all_data = []  # List to store data from the first matching table
 
@@ -991,7 +1315,8 @@ def extract_table_data_from_html(raw_html):
         if not rows:
             continue
 
-        headers = [td.get_text(strip=True) for td in rows[0].find_all("td")]
+        # headers = [td.get_text(strip=True) for td in rows[0].find_all("td")]
+        headers = [ remove_separator_from_table_header(td.get_text(strip=True)) for td in rows[0].find_all("td")]
         normalized_headers = [h.lower().strip() for h in headers]
 
         # ✅ Check if any alias of IR or LOI is present
@@ -1021,7 +1346,7 @@ def remove_separator_from_table(raw_html):
     soup = BeautifulSoup(raw_html, "html.parser")
     tables = soup.find_all("table")
 
-    SEPARATORS = [":", "-", ":-"]  # You can add more in the future
+    SEPARATORS = [":", "-", ":-", '=']  # You can add more in the future
 
     # Build a regex pattern like "[:\-]"
     pattern = "[" + re.escape("".join(SEPARATORS)) + "]"
@@ -1040,14 +1365,23 @@ def remove_separator_from_table(raw_html):
     return soup.find_all("table")
 
 
-# modified - works for aliases of loi and ir also
+def remove_separator_from_table_header(key: str) -> str:
+
+    SEPARATORS = [":-", ":", "-", "="]  # Keep longest first to avoid partial matches
+
+    new_key = key
+    for sep in SEPARATORS:
+        new_key = new_key.replace(sep, "")
+    
+    return new_key.strip()
+
 def extract_vertical_table_data(raw_html):
 
-    # soup = BeautifulSoup(raw_html, "html.parser")
-    # tables = soup.find_all("table")
+    soup = BeautifulSoup(raw_html, "html.parser")
+    tables = soup.find_all("table")
 
     # gives all tables after removing the colon from table text
-    tables = remove_separator_from_table(raw_html)
+    # tables = remove_separator_from_table(raw_html)
 
     for table in tables:
         rows = table.find_all("tr")
@@ -1062,7 +1396,9 @@ def extract_vertical_table_data(raw_html):
                 continue  # Skip rows with less than 2 columns
 
             key = cells[0].get_text(strip=True)
+            key = remove_separator_from_table_header(key)
             values = [cell.get_text(strip=True) for cell in cells[1:]]
+            # print("val",values)
 
             # Append values to the correct column index
             for i, val in enumerate(values):
@@ -1336,7 +1672,7 @@ def save_unique_mail_in_db( conversation_id, mail_details, extracted, final_cpi,
     
     except Exception as e:
         print("error a gya XYZ")
-        """
+
         # Get conversation_id from the values list
         try:
             conversation_id_index = field_names.index("conversation_id")
@@ -1351,7 +1687,6 @@ def save_unique_mail_in_db( conversation_id, mail_details, extracted, final_cpi,
             if max_len and isinstance(value, str) and len(value) > max_len:
                 print(f"Field '{field}' too long ({len(value)} > {max_len}): {value}")
         print(e)
-        """
 
 
 def handle_mail(email):
@@ -1408,6 +1743,8 @@ class ReadEmailAPIView(APIView):
         try:
             access_token = get_access_token()
 
+            # print(access_token)
+
             email_endpoint = "https://graph.microsoft.com/v1.0/me/messages"
             headers = {
                 'Authorization': f'Bearer {access_token}',
@@ -1415,7 +1752,7 @@ class ReadEmailAPIView(APIView):
             }
 
             # format is - YYYY, MM, DD
-            target_date = datetime(2025, 7, 18).date()
+            target_date = datetime(2025, 8, 19).date()
 
             # Calculate date range (00:00 to 23:59:59 of target date)
             start_datetime = datetime.combine(target_date, datetime.min.time())
@@ -1519,3 +1856,190 @@ class ReadEmailAPIView(APIView):
 
         except Exception as e:
             return JsonResponse({"error11": str(e)}, status=500)
+
+
+            
+@method_decorator(csrf_exempt, name='dispatch')
+class GetThreadEmailsAPIView(APIView):
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            email_id = data.get("email_id")
+
+            if not email_id:
+                return JsonResponse({"error": "Missing 'email_id' in request body."}, status=400)
+
+            access_token = get_access_token()
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Step 1: Fetch the selected email by ID
+            email_url = f"https://graph.microsoft.com/v1.0/me/messages/{email_id}"
+            email_response = requests.get(email_url, headers=headers)
+
+            if email_response.status_code != 200:
+                return JsonResponse({"error": "Email not found", "details": email_response.text}, status=email_response.status_code)
+
+            email_data = email_response.json()
+
+            # return JsonResponse({"email_message": email_data}, status=200)
+
+            conversation_id = email_data.get("conversationId")
+
+            if not conversation_id:
+                return JsonResponse({"error": "No conversation ID found in the email."}, status=404)
+
+            # Step 2: Fetch all emails in the same conversation
+            thread_url = "https://graph.microsoft.com/v1.0/me/messages"
+            params = {
+                "$filter": f"conversationId eq '{conversation_id}'",
+                "$select": "id,subject,bodyPreview,from,toRecipients,receivedDateTime"
+            }
+
+            thread_response = requests.get(thread_url, headers=headers, params=params)
+
+            if thread_response.status_code != 200:
+                return JsonResponse({"error": "Failed to retrieve conversation thread", "details": thread_response.text}, status=thread_response.status_code)
+
+            thread_emails = thread_response.json().get("value", [])
+
+            return JsonResponse({
+                "selected_email": email_data,
+                "thread_emails": thread_emails
+            }, status=200)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+
+
+
+# function returns takes the html and returns json response
+def SubmitTextAPI_helper(user_text):
+      
+    cleaned_text = html_to_text(user_text)
+    cleaned_text = clean_text(cleaned_text)
+
+    structured_data = extract_key_value_pairs(cleaned_text)
+    final_cpi = extract_final_agreed_cpi(cleaned_text)
+    table_data_list = extract_table_data_from_html(user_text)
+    vertical_table_data_list = extract_vertical_table_data(user_text)
+
+    # backup function
+    unstructured_data = extract_value_without_key(cleaned_text)
+    fuzzy_data = extract_fuzzy_key_value_pairs(cleaned_text)
+
+    # remove 'from', 'sent', 'subject' etc. key from dictionary, if present
+    if 'from' in structured_data:
+        del structured_data['from']
+    
+    if 'sent' in structured_data:
+        del structured_data['sent']
+
+    if 'to' in structured_data:
+        del structured_data['to']
+    
+    if 'cc' in structured_data:
+        del structured_data['cc']
+    
+    if 'subject' in structured_data:
+        del structured_data['subject']
+    
+    table_data = table_data_list.copy()
+
+    if vertical_table_data_list == [] and len(table_data_list) > 0:
+        table_data = table_data_list.copy()
+
+    if table_data_list == [] and  len(vertical_table_data_list) > 0:
+        table_data = vertical_table_data_list.copy()
+
+          
+    if table_data:
+
+        # ignore multiple rows, send first row
+        final_table_data = table_data[0]
+
+        # merge new keys from 'structured_data' to 'final_table_data'
+        final_table_data = {**structured_data, **final_table_data}     
+
+
+        return {
+            "status": "success",
+            "html_data" : final_table_data,
+            "clear_data": cleaned_text
+           
+        }
+    
+    combined_data = {}
+
+    combined_data = {**structured_data, **combined_data}    
+
+    # for text data only 
+    if combined_data == {}:
+        # 'unstructured_data has 5 fields only - n,ir,loi,market,field_time'
+        combined_data = {**unstructured_data, **combined_data}    
+
+    if 'requested_cpi' not in combined_data and final_cpi:
+        combined_data['requested_cpi'] = final_cpi
+
+    # for text data - UNSTRUCTURED DATA populating STRUCTURED DATA  - start block
+    if 'market' not in combined_data and 'market' in unstructured_data:
+        combined_data['market'] = unstructured_data['market']
+    
+    if 'loi' not in combined_data and 'loi' in unstructured_data:
+        combined_data['loi'] = unstructured_data['loi']
+
+    if 'ir' not in combined_data and 'ir' in unstructured_data:
+        combined_data['ir'] = unstructured_data['ir']
+    
+    # for text data - UNSTRUCTURED DATA populating STRUCTURED DATA  - end block
+        
+    if 'industries' not in combined_data and 'industries' in fuzzy_data:
+        combined_data['industries'] = fuzzy_data['industries']
+
+    if 'target_audience' not in combined_data and 'target_audience' in fuzzy_data:
+        combined_data['target_audience'] = fuzzy_data['target_audience']
+    
+    # if 'n' not in combined_data and 'n' in fuzzy_data:
+    #     combined_data['n'] = fuzzy_data['n']
+
+    if 'loi' not in combined_data and 'loi' in fuzzy_data:
+        combined_data['target_audience'] = fuzzy_data['target_audience']
+
+    if 'ir' not in combined_data and 'ir' in fuzzy_data:
+        combined_data['ir'] = fuzzy_data['ir']
+    
+    if 'methodology' not in combined_data and 'methodology' in fuzzy_data:
+        combined_data['methodology'] = fuzzy_data['methodology']
+    
+    if 'quotas' not in combined_data and 'quotas' in fuzzy_data:
+        combined_data['quotas'] = fuzzy_data['quotas']
+
+    if 'field_time' not in combined_data and 'field_time' in fuzzy_data:
+        combined_data['field_time'] = fuzzy_data['field_time']
+
+    if 'feasibility' not in combined_data and 'feasibility' in fuzzy_data:
+        combined_data['feasibility'] = fuzzy_data['feasibility']
+
+    if 'survey_type' not in combined_data and 'survey_type' in fuzzy_data:
+        combined_data['survey_type'] = fuzzy_data['survey_type']
+
+    if 'survey_topic' not in combined_data and 'survey_topic' in fuzzy_data:
+        combined_data['survey_topic'] = fuzzy_data['survey_topic']
+
+    if 'devices' not in combined_data:
+        combined_data['devices'] = extract_device_keywords(cleaned_text)            
+  
+
+    combined_data = filter_required_keys_only(combined_data)
+   
+    return {
+        "status": "success",
+        "html_data" : combined_data,
+        "clear_data": cleaned_text
+    }
+
+

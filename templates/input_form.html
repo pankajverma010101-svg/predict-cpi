@@ -1,6 +1,7 @@
+
+  
 <!DOCTYPE html>
 <html>
-
 <head>
     <title>Testing - Bid details</title>
 
@@ -11,42 +12,76 @@
             plugins: 'table paste',
             toolbar: 'undo redo | bold italic underline | alignleft aligncenter alignright | table',
             menubar: false,
-            height: 300
+            height: 300,
+            setup: function (editor) {
+            // 👉 Clear result + dropdowns on typing or pasting
+            editor.on('input paste', function () {
+                document.getElementById('responseOutput').innerText = '';
+                document.getElementById('businessSelect').value = '';
+                document.getElementById('clientSelect').value = '';
+            });
+        }
         });
     </script>
 
+    <style>
+        .button {
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 12px;
+            margin: 4px 2px;
+            cursor: pointer;
+            background-color: #04AA6D;
+            border-radius: 6px;
+        }
+
+        .clear-btn {
+            background-color: #f44336; /* Red */
+        }
+
+        .button:disabled {
+            background-color: #9e9e9e; /* Grey when disabled */
+            cursor: not-allowed;
+        }
+
+        .client-dropdown {
+            padding: 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            margin-left: 10px;
+        }
+
+        .business-dropdown {
+            padding: 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            margin-left: 10px;
+        }
+    </style>
 </head>
 
-<style>
-    .button {
-        border: none;
-        color: white;
-        padding: 15px 32px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 12px;
-        margin: 4px 2px;
-        cursor: pointer;
-        background-color: #04AA6D;
-        border-radius: 6px;
-    }
-
-    .clear-btn {
-        background-color: #f44336; /* Red */
-    }
-
-    .button:disabled {
-        background-color: #9e9e9e; /* Grey when disabled */
-        cursor: not-allowed;
-    }
-</style>
-
 <body>
-
     <h3>Enter Bid Details</h3>
     <textarea id="userText"></textarea>
     <br>
+   
+    <!-- Dropdowns beside Clear button -->
+   
+
+    <select id="businessSelect" class="business-dropdown">
+        <option value="">Select Business Type</option>
+        <option value="B2B">B2B</option>
+        <option value="B2C">B2C</option>
+    </select>
+
+     <select id="clientSelect" class="client-dropdown">
+        <option value="">Select Client</option>
+    </select>
+
     <button class="button" id="submitBtn" onclick="sendText()">Submit</button>
     <button class="button clear-btn" onclick="clearText()">Clear</button>
 
@@ -54,12 +89,53 @@
     <pre id="responseOutput"></pre>
 
     <script>
+        // 👉 Store clients in array
+        const clients = [
+            "acuity",
+            "Innovate MR",
+            "Paradigm Sample",
+            "Pure Profile AU Pty",
+            "IR Bureau",
+            "Empanel Online",
+            "Azure Knowledge Corporation",
+            "Acuity Knowledge Partners",
+            "RepDataLLC",
+            "phronesis",
+            "Qualtrics",
+            "Quantifyai",
+            "Toluna",
+            "Cint",
+            "Divergent Insights",
+            "Ipsos Interactive Services",
+            "Opinionroute",
+            "Tehrihills",
+            "Bilendi",
+            "DashMR",
+            "Gerson Lehrman Group",
+            "IVY Exec",
+            "Logit Group",
+            "Potloc",
+            "Symmetric Sampling",
+            "Wearehuman8"
+        ];
+
+        // 👉 Populate client dropdown dynamically
+        const clientSelect = document.getElementById("clientSelect");
+        clients.forEach(client => {
+            const option = document.createElement("option");
+            option.value = client;
+            option.textContent = client;
+            clientSelect.appendChild(option);
+        });
+
         function sendText() {
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.innerText = "Submitting...";
             submitBtn.disabled = true;
 
             const userText = tinymce.get('userText').getContent();
+            const clientName = document.getElementById('clientSelect').value;
+            const businessType = document.getElementById('businessSelect').value;
 
             fetch('/api/submit-text/', {
                 method: 'POST',
@@ -67,59 +143,53 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': getCSRFToken()
                 },
-                body: JSON.stringify({ text: userText })
+                body: JSON.stringify({ text: userText, client_name: clientName, business_type: businessType })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status == 'fail') {
-                        document.getElementById('responseOutput').innerText =
-                            data.msg + " : " + JSON.stringify(data.message, null, 2)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status == 'fail') {
+                    document.getElementById('responseOutput').innerText =
+                        data.msg + " : " + JSON.stringify(data.message, null, 2)
+                }
+                else {
+                    const structured = data.structured_data || {};
+                    const predictedCPI = data.message?.predicted_price ?? 'N/A';
+
+                    function safe(value) {
+                        return value ?? 'N/A';
                     }
-                    else {
-                        const structured = data.structured_data || {};
-                        const predictedCPI = data.message?.predicted_final_cpi ?? 'N/A';
 
-                        function safe(value) {
-                            return value ?? 'N/A';
-                        }
+                    // Auto select B2B/B2C if API returns it
+                    if (data.business_type) {
+                        document.getElementById('businessSelect').value = data.business_type.toUpperCase();
+                    }
 
-                        function multiline(value) {
-                            return safe(value).replace(/\n/g, '<br>');
-                        }
-
-                        document.getElementById('responseOutput').innerHTML =
-                            `<div style="font-size: 14px;">` +
-                                 `<div style="padding: 5px; margin-bottom:5px; background-color: #e8f5e9; border-left: 5px solid #4caf50;">
+                    document.getElementById('responseOutput').innerHTML =
+                        `<div style="font-size: 14px;">` +
+                             `<div style="padding: 5px; margin-bottom:5px; background-color: #e8f5e9; border-left: 5px solid #4caf50;">
         <strong>Predicted Final CPI:</strong> ${predictedCPI}
      </div>` +
-                            `<b>Status:</b> ${safe(data.status)}<br><br>` +
-                            `<b>Market:</b> ${safe(structured.market)}<br>` +
-                            `<b>Sample Size (n):</b> ${safe(structured.n)}<br>` +
-                            `<b>Target Audience:</b> ${multiline(structured.target_audience)}<br>` +
-                            `<b>Industries:</b> ${multiline(structured.industries)}<br>` +
-                            `<b>Incidence Rate (IR):</b> ${safe(structured.ir)}<br>` +
-                            `<b>Length of Interview (LOI):</b> ${safe(structured.loi)}<br>` +
-                            `<b>Devices:</b> ${safe(structured.devices)}<br>` +
-                            `<b>Survey Topic:</b> ${safe(structured.survey_topic)}<br>` +
-                            `<b>Survey Type:</b> ${safe(structured.survey_type)}<br>` +
-                            `<b>Quotas:</b> ${safe(structured.quotas)}<br>` +
-                            `<b>Field Time:</b> ${safe(structured.field_time)}<br>` +
-                            `<b>Feasibility:</b> ${safe(structured.feasibility)}<br>` +
-                            `</div>`;
-                    }
-                })
-                .catch(err => {
-                    document.getElementById('responseOutput').innerText = "Error: " + err;
-                })
-                .finally(() => {
-                    submitBtn.innerText = "Submit";
-                    submitBtn.disabled = false;
-                });
+                        `<b>Business Type:</b> ${safe(data.business_type)}<br>` +
+                        `<b>Market:</b> ${safe(structured.market)}<br>` +
+                        `<b>Incidence Rate (IR):</b> ${safe(structured.ir)}<br>` +
+                        `<b>Length of Interview (LOI):</b> ${safe(structured.loi)}<br>` +
+                        `</div>`;
+                }
+            })
+            .catch(err => {
+                document.getElementById('responseOutput').innerText = "Error: " + err;
+            })
+            .finally(() => {
+                submitBtn.innerText = "Submit";
+                submitBtn.disabled = false;
+            });
         }
 
         function clearText() {
-            tinymce.get('userText').setContent(''); // Clear TinyMCE editor
-            document.getElementById('responseOutput').innerText = ''; // Clear output
+            tinymce.get('userText').setContent('');
+            document.getElementById('responseOutput').innerText = '';
+            document.getElementById('clientSelect').value = '';
+            document.getElementById('businessSelect').value = '';
         }
 
         function getCSRFToken() {
@@ -134,7 +204,13 @@
             }
             return cookieValue;
         }
+
+        // 👉 Auto call API when business type is changed
+        document.getElementById("businessSelect").addEventListener("change", function() {
+            if (this.value) {
+                sendText();
+            }
+        });
     </script>
 </body>
-
 </html>
