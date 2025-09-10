@@ -6,7 +6,6 @@ import joblib
 import re, os, bisect
 from math import ceil
 from collections import defaultdict
-from transformers import pipeline
 import re
 from .countries import countries
 
