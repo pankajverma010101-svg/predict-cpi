@@ -10,6 +10,10 @@ on:
       - qlab
   workflow_dispatch:
 
+concurrency:
+  group: predict-cpi-deploy
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
