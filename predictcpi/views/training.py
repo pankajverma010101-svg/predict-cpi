@@ -9,7 +9,6 @@ from collections import defaultdict
 import re
 from .countries import countries
 
-
 # ---------------- Paths ----------------
 CONSUMER_MODEL = "ml/consumer_pricing_model.pkl"
 CONSUMER_FEATURES = "ml/consumer_pricing_features.pkl"
