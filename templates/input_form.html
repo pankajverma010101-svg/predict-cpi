@@ -211,6 +211,13 @@
                 sendText();
             }
         });
+
+         // 👉 Auto call API when client is changed
+    document.getElementById("clientSelect").addEventListener("change", function() {
+        if (this.value) {
+            sendText();
+        }
+    });
     </script>
 </body>
 </html>
