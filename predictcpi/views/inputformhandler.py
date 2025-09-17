@@ -8,6 +8,7 @@ from django.utils.decorators import method_decorator
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from .emailreader import extract_key_value_pairs, extract_final_agreed_cpi, html_to_text, extract_table_data_from_html, extract_vertical_table_data , clean_text, extract_email_metadata, save_unique_mail_in_db, SubmitTextAPI_helper
+import re
 
 import random
 import os
@@ -18,6 +19,7 @@ import traceback
 from rest_framework.test import APIRequestFactory
 from .training import PredictCPI
 import requests
+import json
 
 @csrf_exempt
 def input_form_view(request):
@@ -26,6 +28,7 @@ def input_form_view(request):
 
 API_KEY = "JFJM5jDOxm1kgDuOBY4oIAtK1VkMzKX1"
 API_URL = "https://api.mistral.ai/v1/chat/completions"
+
 
 
 headers = {
@@ -189,6 +192,59 @@ def classify_roles(text: str) -> dict:
 
 
 
+def fill_missing_fields(master_data: dict, original_text: str) -> dict:
+    for key in ["market", "loi", "ir", "n"]:
+        if key not in master_data:
+            master_data[key] = None
+
+    missing = [k for k, v in master_data.items() if v in [None, "", "Not Found"] and k in ["market", "loi", "ir"]]
+
+    if missing:
+        prompt = f"""
+        Extract the following fields from this bid specification text:
+        - Market (country or region)
+        - N (sample size)
+        - LOI (length of interview in minutes)
+        - IR (incidence rate in %)
+
+        Respond ONLY in JSON with keys: market, n, loi, ir.
+        If not present, put "Not Found".
+
+        Text:
+        {original_text}
+        """
+
+        payload = {
+            "model": "mistral-large-latest",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+        }
+
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+            response.raise_for_status()
+            raw_content = response.json()["choices"][0]["message"]["content"].strip()
+            print("api calling.......................................")
+            # 🔹 Clean markdown fences
+            if raw_content.startswith("```"):
+                raw_content = re.sub(r"^```[a-zA-Z]*\n?", "", raw_content)  # remove opening ```
+                raw_content = raw_content.strip("`")                        # remove trailing ```
+            
+            # Parse JSON
+            ai_result = json.loads(raw_content)
+
+            for k in missing:
+                if ai_result.get(k) and ai_result[k] not in ["", None, "Not Found"]:
+                    master_data[k] = str(ai_result[k])
+
+        except Exception as e:
+            print("⚠️ Mistral API error:", e)
+
+    for k in ["market", "loi", "ir"]:
+        if master_data[k] in [None, "", "null"]:
+            master_data[k] = "Not Found"
+
+    return master_data
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -213,14 +269,14 @@ class SubmitTextAPI(APIView):
             extracted_data = SubmitTextAPI_helper(user_text)
             # print("!!!!!!!!!!",extracted_data)
             master_data=extracted_data["html_data"]
+           
 
             clear_data=extracted_data["clear_data"]
             master_data["client_name"] = client_name
 
             audience_text = master_data.get("target_audience") or clear_data
-            # business_type = classify_business(audience_text)
-            # print("&&&&&&&",audience_text)
-            # print("*****",business_type)
+            master_data = fill_missing_fields(master_data, clear_data)
+
             roles = classify_roles(audience_text) 
             master_data["dir"] = roles["dir"] 
             master_data["clevel"] = roles["clevel"]
@@ -228,7 +284,11 @@ class SubmitTextAPI(APIView):
             business_type = request.data.get("business_type", "").strip()
             if not business_type:  
                 business_type = classify_business(audience_text)
+                # business_type = "B2B"
+
             master_data["business_type"]  = business_type
+
+            # print("final master data",master_data)
 
              # Predict CPI
             factory = APIRequestFactory()
