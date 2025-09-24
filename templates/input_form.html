@@ -133,6 +133,11 @@
             submitBtn.innerText = "Thinking...";
             submitBtn.disabled = true;
 
+             // 👉 Clear all previous responses when button is in Thinking state
+            document.getElementById('responseOutput').innerText = '';
+            document.getElementById('businessSelect').value = '';
+            document.getElementById('clientSelect').value = '';
+
             const userText = tinymce.get('userText').getContent();
             const clientName = document.getElementById('clientSelect').value;
             const businessType = document.getElementById('businessSelect').value;
