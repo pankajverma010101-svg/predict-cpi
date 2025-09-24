@@ -242,7 +242,7 @@ def fill_missing_fields(master_data: dict, original_text: str) -> dict:
 
     for k in ["market", "loi", "ir"]:
         if master_data[k] in [None, "", "null"]:
-            master_data[k] = "Not Found"
+            master_data[k] = None
 
     return master_data
 

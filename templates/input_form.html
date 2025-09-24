@@ -130,7 +130,7 @@
 
         function sendText() {
             const submitBtn = document.getElementById('submitBtn');
-            submitBtn.innerText = "Submitting...";
+            submitBtn.innerText = "Thinking...";
             submitBtn.disabled = true;
 
             const userText = tinymce.get('userText').getContent();
@@ -164,8 +164,11 @@
                         document.getElementById('businessSelect').value = data.business_type.toUpperCase();
                     }
 
+
                     document.getElementById('responseOutput').innerHTML =
                         `<div style="font-size: 14px;">` +
+                             `<div style="padding: 5px; margin-bottom:5px; background-color: #e8f5e9; border-left: 5px solid #4caf50; word-wrap: break-word;overflow-wrap: break-word;white-space: normal;max-width: 100%;">
+ ${data.message.assumptions || "No assumptions available"}     </div>` +
                              `<div style="padding: 5px; margin-bottom:5px; background-color: #e8f5e9; border-left: 5px solid #4caf50;">
         <strong>Predicted Final CPI:</strong> ${predictedCPI}
      </div>` +

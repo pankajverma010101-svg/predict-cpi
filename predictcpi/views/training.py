@@ -8,6 +8,7 @@ from math import ceil
 from collections import defaultdict
 import re
 from .countries import countries
+import random
 
 # ---------------- Paths ----------------
 CONSUMER_MODEL = "ml/consumer_pricing_model.pkl"
@@ -261,6 +262,7 @@ def load_acuity_b2b_rows():
 
 
 def acuity_b2b_find_price(country_upper, ir_input, loi_input):
+    print("IRinput",ir_input,loi_input,country_upper)
     rows = load_acuity_b2b_rows()
     rows = [r for r in rows if r['country_name'] == country_upper.upper()]
     matched_type = "acuity_b2b"
@@ -396,6 +398,192 @@ def find_region(text: str) -> str:
     return "Unknown"
 
 
+def generate_cpi_message(request, country, price, surveytype): 
+    ir_in = parse_ir(request.data.get("ir"))
+    loi_in = parse_loi(request.data.get("loi"))
+
+    # ✅ Apply condition for country
+    if surveytype == "Consumer":
+        country = country   # use argument
+    else:
+        country = request.data.get("market")  # use request data
+
+
+    explanations = []
+
+    # -------------------------------
+    # All three missing (IR+LOI+Country)
+    # -------------------------------
+    if not ir_in and not loi_in and (not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]):
+        msgs = [
+            f"Since IR, LOI, and country were all missing, I assumed IR=30%, LOI=15 minutes, and standard market benchmarks. Under these defaults, the CPI is **{price} USD**.",
+            f"No inputs for IR, LOI, or country were provided. I proceeded with IR=30%, LOI=15, and general assumptions, giving a CPI of **{price} USD**.",
+            f"As none of IR, LOI, or country were specified, I defaulted to IR=30%, LOI=15 minutes, and average market baselines. Estimated CPI is **{price} USD**.",
+            f"Because IR, LOI, and country were missing, I applied industry norms: IR=30%, LOI=15, and global standards. CPI works out to **{price} USD**.",
+            f"Inputs for IR, LOI, and country weren’t received. Using default IR=30%, LOI=15 mins, and typical rates, the CPI estimate is **{price} USD**.",
+            f"Without IR, LOI, or country, I assumed IR=30%, LOI=15 minutes, and standard references. This yields a CPI of **{price} USD**.",
+            f"Since all three inputs (IR, LOI, country) were absent, I proceeded with default IR=30%, LOI=15, and average assumptions. Predicted CPI: **{price} USD**.",
+            f"IR, LOI, and country weren’t provided. I used default IR=30%, LOI=15 minutes, and baseline benchmarks. CPI comes to **{price} USD**.",
+            f"With no IR, LOI, or country specified, I relied on fallback defaults (IR=30%, LOI=15, typical rates). CPI is estimated at **{price} USD**.",
+            f"All inputs missing — I applied IR=30%, LOI=15 minutes, and standard assumptions. The CPI projection is **{price} USD**."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Two missing (IR+LOI)
+    # -------------------------------
+    elif not ir_in and not loi_in:
+        msgs = [
+            f"Both IR and LOI were missing, so I assumed IR=30% and LOI=15 minutes. Based on {country}, the CPI is **{price} USD**.",
+            f"IR and LOI weren’t specified. I defaulted to IR=30%, LOI=15 mins for calculation. Estimated CPI: **{price} USD** in {country}.",
+            f"No IR or LOI provided, so I proceeded with IR=30% and LOI=15 minutes. This results in a CPI of **{price} USD** for {country}.",
+            f"Because both IR and LOI were absent, I used default IR=30% and LOI=15 mins. The CPI is **{price} USD** for {country}.",
+            f"Inputs IR and LOI weren’t available, so I estimated with IR=30% and LOI=15 minutes. CPI = **{price} USD** in {country}.",
+            f"Without IR and LOI, I applied standard defaults (IR=30%, LOI=15 mins). The CPI works out to **{price} USD** in {country}.",
+            f"IR and LOI not specified — I assumed IR=30% and LOI=15 minutes. That produces a CPI of **{price} USD** for {country}.",
+            f"As IR and LOI were missing, I continued with defaults: IR=30%, LOI=15. CPI = **{price} USD** in {country}.",
+            f"Since IR and LOI weren’t given, I relied on standard IR=30% and LOI=15 minutes. CPI estimate: **{price} USD** ({country}).",
+            f"Both IR and LOI absent — defaults applied (30%, 15 minutes). Predicted CPI for {country}: **{price} USD**."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Two missing (IR+Country)
+    # -------------------------------
+    elif not ir_in and (not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]):
+        msgs = [
+            f"IR and country were missing, so I assumed IR=30% and general market benchmarks. With LOI={loi_in}, CPI = **{price} USD**.",
+            f"No IR or country specified. Using IR=30% and standard assumptions, CPI is estimated at **{price} USD** (LOI={loi_in}).",
+            f"Inputs for IR and country weren’t given. I used IR=30% and baseline standards. Resulting CPI: **{price} USD**.",
+            f"IR and country absent — I defaulted to IR=30% and general averages. With LOI={loi_in}, CPI = **{price} USD**.",
+            f"Because IR and country were missing, I worked with IR=30% and typical references. CPI = **{price} USD**.",
+            f"Without IR and country, I assumed IR=30% and global benchmarks. CPI = **{price} USD**.",
+            f"As IR and country weren’t provided, I applied defaults IR=30% and standard references. The CPI is **{price} USD**.",
+            f"No IR or country detected. I used IR=30% and global estimates. Predicted CPI = **{price} USD**.",
+            f"IR and country not available — defaulted to IR=30% and averages. CPI = **{price} USD**.",
+            f"Since IR and country missing, fallback applied: IR=30%, global benchmarks. CPI = **{price} USD**."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Two missing (LOI+Country)
+    # -------------------------------
+    elif not loi_in and (not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]):
+        msgs = [
+            f"LOI and country were not specified. I assumed LOI=15 minutes and global benchmarks. CPI = **{price} USD**.",
+            f"No LOI or country input. Using LOI=15 and average assumptions, CPI = **{price} USD**.",
+            f"LOI and country missing — I defaulted to LOI=15 mins and standard baselines. CPI works out to **{price} USD**.",
+            f"Because LOI and country weren’t given, I applied LOI=15 minutes and global references. CPI = **{price} USD**.",
+            f"As LOI and country absent, I used LOI=15 minutes and general assumptions. Estimated CPI: **{price} USD**.",
+            f"Inputs for LOI and country were missing. I defaulted to LOI=15 and global standards. CPI = **{price} USD**.",
+            f"Without LOI and country values, I assumed 15 minutes and typical references. CPI is **{price} USD**.",
+            f"No LOI or country specified — I used defaults: LOI=15 mins, global rates. CPI: **{price} USD**.",
+            f"LOI and country not provided — fallback applied: LOI=15, standard assumptions. CPI = **{price} USD**.",
+            f"Since LOI and country missing, I proceeded with LOI=15 mins and market benchmarks. CPI = **{price} USD**."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Single missing (IR only)
+    # -------------------------------
+    elif not ir_in:
+        msgs = [
+            f"Since incidence rate (IR) wasn’t specified, I assumed 30% as a baseline and calculated the CPI at **{price} USD**. Providing the actual IR will refine this estimate.",
+            f"IR was not provided, so I defaulted to 30% (a common benchmark). Based on this, the CPI works out to **{price} USD**. Sharing the exact IR will yield a more accurate result.",
+            f"No IR input was given. I used 30% as a midpoint assumption, leading to a CPI prediction of **{price} USD**. Supplying the actual IR will improve precision.",
+            f"IR wasn’t included, so I proceeded with 30% as a standard assumption. This results in an estimated CPI of **{price} USD**. Adding the real IR would enhance accuracy.",
+            f"Because IR is missing, I estimated with a 30% assumption, which gives a CPI of **{price} USD**. Providing the true IR value will fine-tune the prediction.",
+            f"No incidence rate detected — I applied 30% as the default and derived a CPI of **{price} USD**. Sharing the actual IR will strengthen the forecast.",
+            f"To continue without an IR value, I assumed 30% (a moderate feasibility rate). This produces an estimated CPI of **{price} USD**. The actual IR will deliver a sharper estimate.",
+            f"As IR wasn’t specified, I applied a conservative 30% rate. Under this assumption, the CPI is **{price} USD**. For better accuracy, please provide the actual IR.",
+            f"IR input was blank, so I relied on a 30% midpoint assumption. This results in a CPI of **{price} USD**. The exact IR will help narrow the prediction range.",
+            f"I didn’t receive an IR value, so I based the calculation on 30%, resulting in an estimated CPI of **{price} USD**. Adding the true IR would make the outcome more precise."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Single missing (LOI only)
+    # -------------------------------
+    elif not loi_in:
+        msgs = [
+            f"LOI wasn’t specified, so I assumed 15 minutes and estimated the CPI at **{price} USD**. Providing the real LOI will make this more accurate.",
+            f"Since no LOI was provided, I worked with a 15-minute baseline. This leads to a CPI of **{price} USD**. Sharing the actual LOI would refine this estimate.",
+            f"LOI input is missing, so I applied a default of 15 minutes. Based on that, the CPI is **{price} USD**. Supplying the exact LOI will improve precision.",
+            f"No LOI was given, so I relied on a 15-minute assumption. The resulting CPI is **{price} USD**. Entering the actual LOI would enhance accuracy.",
+            f"Because LOI wasn’t included, I considered 15 minutes as the survey length. That results in a CPI of **{price} USD**. Providing the correct LOI will fine-tune the prediction.",
+            f"To proceed, I assumed a standard LOI of 15 minutes. This yields a CPI of **{price} USD**. For a sharper forecast, please provide the actual LOI.",
+            f"As LOI wasn’t specified, I defaulted to 15 minutes. Under this assumption, the CPI is **{price} USD**. Supplying the real LOI would give a closer estimate.",
+            f"LOI input was blank, so I calculated using 15 minutes as a typical benchmark. This gives a CPI of **{price} USD**. Entering the true LOI will improve accuracy.",
+            f"I didn’t receive an LOI value, so I assumed 15 minutes for estimation. The predicted CPI is **{price} USD**. Sharing the actual LOI would enhance reliability.",
+            f"No valid LOI provided — I worked with 15 minutes as the default. That leads to a CPI of **{price} USD**. Providing the exact LOI will strengthen the result."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Single missing (Country only)
+    # -------------------------------
+    elif not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+        msgs = [
+            f"Since country wasn’t specified, I applied general benchmarks. The estimated CPI is **{price} USD**. Providing the correct country will improve accuracy.",
+            f"Country input was missing, so I defaulted to average market rates. This results in a CPI of **{price} USD**. Sharing the actual country would refine this.",
+            f"No country was provided, so I assumed general averages. The CPI works out to **{price} USD**. Entering the true country will yield a more precise estimate.",
+            f"Because no valid country was detected, I used baseline pricing references. This gives a CPI of **{price} USD**. Providing the real country will sharpen the forecast.",
+            f"Country wasn’t included, so I applied standard baselines. The resulting CPI is **{price} USD**. For better accuracy, please specify the country.",
+            f"As no country input was given, I worked with global assumptions. This leads to an estimated CPI of **{price} USD**. Supplying the country would enhance precision.",
+            f"No valid country input, so I relied on benchmarks. Under this assumption, the CPI is **{price} USD**. Adding the actual country will fine-tune the estimate.",
+            f"To proceed without a country value, I assumed market standards. That produces a CPI of **{price} USD**. Sharing the real country will improve reliability.",
+            f"Country field was blank, so I used generic references. The CPI under this assumption is **{price} USD**. Providing the country will refine the calculation.",
+            f"I didn’t receive a country input, so I applied fallback assumptions. This results in a CPI of **{price} USD**. Supplying the true country will strengthen accuracy."
+        ]
+        explanations.append(random.choice(msgs))
+
+    # -------------------------------
+    # Success (all present)
+    # -------------------------------
+    else:
+        success_msgs = [
+            f"Based on the provided inputs, the predicted CPI is **{price} USD**.",
+            f"According to the given parameters, the estimated CPI is **{price} USD**.",
+            f"Using the supplied details, our model calculates a CPI of **{price} USD**.",
+            f"With the provided information, the projected CPI is **{price} USD**.",
+            f"From the entered values, the expected CPI is **{price} USD**.",
+            f"Based on your specifications, the CPI works out to **{price} USD**.",
+            f"According to the input data, the suggested CPI is **{price} USD**.",
+            f"Using your survey details, the calculated CPI comes to **{price} USD**.",
+            f"Given the provided conditions, the estimated CPI is **{price} USD**.",
+            f"With the supplied survey parameters, the model predicts a CPI of **{price} USD**."
+        ]
+        explanations.append(random.choice(success_msgs))
+
+    return ir_in, loi_in, country, " ".join(explanations)
+
+def generate_cpi_message_clientbutnotacuity(client,price):
+
+    
+    client = client
+
+    explanations = []
+
+    # If everything is valid → success message
+    if not explanations:
+        success_msgs = [
+            f"Based on the provided details for client {client}, the predicted CPI is **{price} USD**.",
+            f"Using the inputs for client {client}, the estimated CPI is **{price} USD**.",
+            f"For client {client}, our model suggests a CPI of **{price} USD**.",
+            f"With the supplied parameters for client {client}, the expected CPI is **{price} USD**.",
+            f"According to the provided information, client {client} has a projected CPI of **{price} USD**.",
+            f"From the given details, the calculated CPI for client {client} is **{price} USD**.",
+            f"Based on the specifications, the CPI for client {client} works out to **{price} USD**.",
+            f"Given the input data, client {client} is expected to have a CPI of **{price} USD**.",
+            f"Using your survey details, the model predicts a CPI of **{price} USD** for client {client}.",
+            f"With the entered parameters, client {client} has an estimated CPI of **{price} USD**."
+        ]
+        explanations.append(random.choice(success_msgs))
+
+    return  " ".join(explanations)
+
+
+
 
 # =========================
 # DRF View
@@ -408,14 +596,22 @@ class PredictCPI(APIView):
 
             # -------- B2B ACUITY CASE --------
             if business_type == "b2b" and client_name == "acuity":
+                print("Running.....................BY_B2B acuity")
+
                 country_name = _normalize_country_or_market(str(request.data.get("market", "")))
                 country=find_region(country_name)
 
-                ir_in, loi_in = request.data.get("ir"), request.data.get("loi")
-                if not country or ir_in is None or loi_in is None:
-                    return Response({"status": "error", "message": "country, ir, loi required"}, status=400)
+                # If blank or unknown, force fallback to USA
+                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                    country = "USA"
 
-                price, source, meta = acuity_b2b_find_price(country, ir_in, loi_in)
+                # Apply defaults for IR/LOI if not provided
+                ir_in = request.data.get("ir") or 30
+                loi_in = request.data.get("loi") or 15
+
+                price, source, meta = acuity_b2b_find_price(country,ir_in,loi_in)
+                # Step 3: generate message (pass resolved values + price)
+                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
 
                 if price is not None:
                     return Response({
@@ -423,62 +619,89 @@ class PredictCPI(APIView):
                         "predicted_price": round(float(price), 2),
                         "source": f"b2b_acquity_{source}",
                         "matched_type": meta.get("matched_type"),
-                        "matched_row": meta.get("row")
+                        "matched_row": meta.get("row"),
+                        "assumptions": final_msg  # 👈 tell user what defaults were applied
+
                     })
                 return Response({"status": "error", "message": "No matching B2B Acuity rule found", "source": f"b2b_acquity_{source}", "meta": meta}, status=404)
 
     # -------- B2C ACUITY CASE --------
             elif business_type == "b2c" and client_name == "acuity":
+                print("Running.....................BY_B2C acuity")
+
                 country_name = _normalize_country_or_market(str(request.data.get("market", "")))
                 country=find_region(country_name)
 
-                ir_in, loi_in = request.data.get("ir"), request.data.get("loi")
-                if not country or ir_in is None or loi_in is None:
-                    return Response({"status": "error", "message": "country, ir, loi required"}, status=400)
+                # If blank or unknown, force fallback to USA
+                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                    country = "USA"
+
+                # Apply defaults for IR/LOI if not provided
+                ir_in = request.data.get("ir") or 30
+                loi_in = request.data.get("loi") or 15
 
                 price, source, meta = acuity_b2c_find_price(country, ir_in, loi_in)
+                # Step 3: generate message (pass resolved values + price)
+                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+
                 if price is not None:
                     return Response({
                         "status": "success",
                         "predicted_price": round(float(price), 2),
                         "source": f"b2c_acquity_{source}",
                         "matched_type": meta.get("matched_type"),
-                        "matched_row": meta.get("row")
+                        "matched_row": meta.get("row"),
+                        "assumptions": final_msg  # 👈 tell user what defaults were applied
                     })
                 return Response({"status": "error", "message": "No matching B2C Acuity rule found", "source": f"b2c_acquity_{source}", "meta": meta}, status=404)
 
             elif business_type == "b2b" and client_name and client_name.lower() != "acuity":
+                print("Running.....................BY_Clint_wise_but not acuity")
+
                 dir_flag = request.data.get("dir")
                 clevel_flag = request.data.get("clevel")
                 
                 price, meta = b2b_with_client_find_price(client_name, dir_flag, clevel_flag)
+                final_msg=generate_cpi_message_clientbutnotacuity(client_name,price)
 
                 if price is not None:
                     return Response({
                         "status": "success",
                         "predicted_price": round(float(price), 2),
                         "source": "b2b_clientwise",
-                        "meta": meta
+                        "meta": meta,
+                        "assumptions": final_msg 
                     })
                 return Response({"status": "error", "message": meta["message"], "source": "b2b_clientwise"}, status=404)
                         # -------- B2B CASE --------
             elif business_type == "b2b":
+                print("Running.....................BY_default_B2B")
 
                 country = _normalize_country_or_market(str(request.data.get("market", "")))
-                print("*******withoutb2bClientcou",country)
 
-                ir_in, loi_in = request.data.get("ir"), request.data.get("loi")
-                if not country or ir_in is None or loi_in is None:
-                    return Response({"status": "error", "message": "country, ir, loi required"}, status=400)
+                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                    country = "USA"
+
+                # Apply defaults for IR/LOI if not provided
+                
+                ir_in = parse_ir(request.data.get("ir") or 30) 
+                loi_in = parse_loi(request.data.get("loi") or 15) 
+                
+                print("***details...",ir_in,loi_in,country)
 
                 price, source, meta = b2b_find_price(country, ir_in, loi_in)
+                # Step 3: generate message (pass resolved values + price)
+                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+
                 if price is not None:
                     return Response({
                         "status": "success",
                         "predicted_price": round(float(price), 2),
                         "source": f"b2b_{source}",
                         "matched_type": meta.get("matched_type"),
-                        "matched_row": meta.get("row")
+                        "matched_row": meta.get("row"),
+                        "assumptions": final_msg  # 👈 tell user what defaults were applied
+
                     })
                 return Response({"status": "error", "message": "No matching B2B rule found", "source": f"b2b_{source}", "meta": meta}, status=404)
 
@@ -486,16 +709,16 @@ class PredictCPI(APIView):
             else:
                 if consumer_model is None and not consumer_lookup:
                     return Response({"status": "error", "message": "Consumer model not trained"}, status=400)
-
                 # Normalize market with USA synonyms; everything else => INTERNATIONAL
                 market_in = _normalize_country_or_market(str(request.data.get("market", "")))
                 market = "USA" if market_in == "USA" else "INTERNATIONAL"
 
                 # Robust IR/LOI parsing (accept ranges like 'ir- 5-9%')
-                ir_range = parse_ir(request.data.get("ir"))
-                loi_range = parse_loi(request.data.get("loi"))
-                if not ir_range or not loi_range:
-                    return Response({"status": "error", "message": "market, ir, loi required"}, status=400)
+                ir_range = parse_ir(request.data.get("ir") or 30) 
+                loi_range = parse_loi(request.data.get("loi") or 15) 
+                
+                print("Running.....................BY_default_consumer")
+
 
                 # Use UPPER bound for pricing conservatism before bucketing
                 ir_val = ir_range[1]
@@ -507,17 +730,22 @@ class PredictCPI(APIView):
                 # 1) Exact lookup
                 key = (market, mapped_ir, mapped_loi)
                 if key in consumer_lookup:
+                    ir_in, loi_in, country, final_msg = generate_cpi_message(request, market, consumer_lookup[key],surveytype='Consumer')
+
                     return Response({
                         "status": "success",
                         "predicted_price": round(float(consumer_lookup[key]), 2),
                         "source": "consumer_exact_lookup",
                         "market_used": market,
                         "mapped_ir": mapped_ir,
-                        "mapped_loi": mapped_loi
+                        "mapped_loi": mapped_loi,
+                        "assumptions": final_msg
                     })
 
                 # 2) Nearest lookup for that market
                 price_nearest, matched_ir, matched_loi = nearest_lookup_price_for_market(market, mapped_ir, mapped_loi)
+                ir_in, loi_in, country, final_msg = generate_cpi_message(request, market, price_nearest,surveytype='Consumer')
+
                 if price_nearest is not None:
                     return Response({
                         "status": "success",
@@ -527,7 +755,8 @@ class PredictCPI(APIView):
                         "mapped_ir": mapped_ir,
                         "mapped_loi": mapped_loi,
                         "matched_bucket_ir": matched_ir,
-                        "matched_bucket_loi": matched_loi
+                        "matched_bucket_loi": matched_loi,
+                        "assumptions": final_msg
                     })
 
                 # 3) Fallback to model
@@ -542,13 +771,16 @@ class PredictCPI(APIView):
                 ).reindex(columns=consumer_features, fill_value=0)
 
                 predicted_price = consumer_model.predict(input_encoded)[0]
+                ir_in, loi_in, country, final_msg = generate_cpi_message(request, market, predicted_price,surveytype='Consumer')
+
                 return Response({
                     "status": "success",
                     "predicted_price": round(float(predicted_price), 2),
                     "source": "consumer_model",
                     "market_used": market,
                     "mapped_ir": mapped_ir,
-                    "mapped_loi": mapped_loi
+                    "mapped_loi": mapped_loi,
+                    "assumptions": final_msg
                 })
 
         except Exception as e:
