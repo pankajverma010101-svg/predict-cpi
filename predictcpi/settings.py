@@ -175,3 +175,18 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 TENANT_ID = os.getenv("TENANT_ID")
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
+
+
+# Logging configuration for debugging
+LOGGING = {
+    'version': 1,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+}

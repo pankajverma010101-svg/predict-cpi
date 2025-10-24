@@ -9,6 +9,7 @@ from collections import defaultdict
 import re
 from .countries import countries
 import random
+import numpy as np         
 
 # ---------------- Paths ----------------
 CONSUMER_MODEL = "ml/consumer_pricing_model.pkl"
@@ -64,7 +65,7 @@ COUNTRY_SYNONYMS = {
     "SPAIN": {
         "SPAIN", "ES", "ESP", "ESPAÑA"
     },
-     "LATAM": {
+    "LATAM": {
         "LATAM", "LATAM America"
     },
     "MENA":{
@@ -408,6 +409,13 @@ def generate_cpi_message(request, country, price, surveytype):
     else:
         country = request.data.get("market")  # use request data
 
+        if len(price) == 1:
+            # Single country → just show the value
+            price = list(price.values())[0]
+        else:
+            # Multiple countries → key=value format
+            price = ",".join(f"{k}={v}" for k, v in price.items())
+
 
     explanations = []
 
@@ -583,6 +591,227 @@ def generate_cpi_message_clientbutnotacuity(client,price):
     return  " ".join(explanations)
 
 
+def extract_countries(raw_market: str):
+    """
+    Extract country codes from a messy input string.
+    Handles words like 'located in', 'or', 'and' etc.
+    """
+    # Remove noise words
+    cleaned = re.sub(r"\blocated in\b|\bor\b|\band\b", "", raw_market, flags=re.IGNORECASE)
+    
+    # Split by comma
+    parts = [p.strip().upper() for p in cleaned.split(",") if p.strip()]
+    
+    return parts
+
+
+import math
+import joblib
+import pandas as pd
+import os
+
+PKL_PATH = "ml/bid_details_with_client_wise.pkl"
+
+def load_data():
+    """Load bid data from pickle file and normalize columns."""
+    if not os.path.exists(PKL_PATH):
+        raise FileNotFoundError(f"{PKL_PATH} not found. Please generate and save it first.")
+
+    df = joblib.load(PKL_PATH)
+
+    # Normalize column names (lowercase, strip spaces)
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Required column mapping (handles variations)
+    col_map = {
+        "client_name": ["client_name", "cl_name", "client"],
+        "ir": ["ir", "bi_ir"],
+        "loi": ["loi", "bi_loi"],
+        "cpi": ["cpi", "bi_cpi"],
+        "target": ["target", "proj_t_name", "project_target"],
+        "country_name": ["country_name", "countries_name", "country"],
+    }
+
+    # Auto map correct columns
+    mapped = {}
+    for key, options in col_map.items():
+        for opt in options:
+            if opt in df.columns:
+                mapped[key] = opt
+                break
+        else:
+            raise KeyError(f"Missing expected column for: {key}")
+
+    # Rename for consistency
+    df = df.rename(columns={v: k for k, v in mapped.items()})
+
+    # Convert numeric columns safely
+    for col in ["ir", "loi", "cpi"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df.dropna(subset=["ir", "loi", "cpi"], inplace=True)
+
+    return df
+
+def _norm(s):
+    return "" if s is None else str(s).strip().upper()
+
+def get_max_cpi_from_df(df):
+    if df is None or df.empty:
+        return None
+    return float(df["cpi"].max())
+
+def predict_cpi_direct(ir, loi, client_name, business_type, country_name, max_distance_threshold=50):
+    df_all = load_data()
+    if df_all.empty:
+        return {"status": "error", "message": "Empty dataset in PKL"}
+
+    # Normalize input values
+    ir = float(ir)
+    loi = float(loi)
+    client = _norm(client_name)
+    target = _norm(business_type)
+    country = _norm(country_name)
+
+    if isinstance(country, list):
+        country = country[0] if len(country) > 0 else ""
+
+    # Clean and normalize country
+    country = str(country).replace("[", "").replace("]", "").replace("'", "").strip().lower()
+
+    # Handle USA variants
+    if country in ["united states", "usa", "us", "u.s.a", "united states of america", "america"]:
+        country = "united states"
+
+    # Prepare uppercase versions for matching
+    client_u = str(client).upper().strip()
+    target_u = str(target).upper().strip()
+    country_u = str(country).upper().strip()
+
+    df_all["client_u"] = df_all["client_name"].astype(str).str.upper().str.strip()
+    df_all["target_u"] = df_all["target"].astype(str).str.upper().str.strip()
+    df_all["country_u"] = df_all["country_name"].astype(str).str.upper().str.strip()
+
+    # Helper function for mean CPI safely
+    def get_avg_cpi_from_df(df):
+        if "final_cpi" in df.columns:
+            return float(df["final_cpi"].mean())
+        elif "cpi" in df.columns:
+            return float(df["cpi"].mean())
+        else:
+            return None
+
+    # Step 1: Exact match (client + country + target + IR + LOI)
+    df = df_all[
+        (df_all["client_u"] == client_u)
+        & (df_all["country_u"] == country_u)
+        & (df_all["target_u"] == target_u)
+        & (df_all["ir"].round() == round(ir))
+        & (df_all["loi"].round() == round(loi))
+    ]
+    if not df.empty:
+        return {
+            "status": "success",
+            "source": "exact_client_country_target_ir_loi",
+            "predicted_cpi": get_max_cpi_from_df(df),  # keep max for exact match
+            "matched_rows": int(len(df)),
+            "example_match": df.iloc[0].to_dict(),
+        }
+
+    # Step 2: Same client + country + target (any IR/LOI) → use average CPI
+    df = df_all[
+        (df_all["client_u"] == client_u)
+        & (df_all["country_u"] == country_u)
+        & (df_all["target_u"] == target_u)
+    ]
+    if not df.empty:
+        df["dist"] = ((df["ir"] - ir) ** 2 + (df["loi"] - loi) ** 2) ** 0.5
+        best = df.loc[df["dist"].idxmin()]
+        return {
+            "status": "success",
+            "source": "client_country_target_any_ir_loi_avg_cpi",
+            "predicted_cpi": get_avg_cpi_from_df(df),
+            "matched_rows": int(len(df)),
+            "nearest_example": best.to_dict(),
+        }
+
+    # Step 3: Country + target (drop client) → use average CPI
+    df = df_all[
+        (df_all["country_u"] == country_u)
+        & (df_all["target_u"] == target_u)
+    ]
+    if not df.empty:
+        df["dist"] = ((df["ir"] - ir) ** 2 + (df["loi"] - loi) ** 2) ** 0.5
+        best = df.loc[df["dist"].idxmin()]
+        return {
+            "status": "success",
+            "source": "country_target_any_ir_loi_avg_cpi",
+            "predicted_cpi": get_avg_cpi_from_df(df),
+            "matched_rows": int(len(df)),
+            "nearest_example": best.to_dict(),
+        }
+
+    # Step 4: Target only → use average CPI
+    df = df_all[df_all["target_u"] == target_u]
+    if not df.empty:
+        return {
+            "status": "success",
+            "source": "target_only_any_country_avg_cpi",
+            "predicted_cpi": get_avg_cpi_from_df(df),
+            "matched_rows": int(len(df)),
+        }
+
+    return {"status": "not_found", "message": "No CPI found for given filters"}
+
+def newparse_ir(ir_str):
+    """
+    Parse IR strings like:
+    '30', '30%', '10-15%', '5-10 %', '10+%', etc.
+    Always take the LOWER value if it's a range.
+    """
+    if not ir_str:
+        return 30.0  # default IR
+
+    ir_str = str(ir_str).strip()
+
+    # Handle range like 10-15%
+    match = re.match(r"(\d+)\s*-\s*(\d+)", ir_str)
+    if match:
+        low, _ = map(float, match.groups())
+        return low  # take lower bound only
+
+    # Handle single number like "25%", "25", "25+"
+    match = re.search(r"(\d+)", ir_str)
+    if match:
+        return float(match.group(1))
+
+    return 30.0
+
+
+
+def newparse_loi(loi_str):
+    """
+    Parse LOI strings like:
+    '15', '15min', '20-25min', '25+ min', etc.
+    Always take the LOWER value if it's a range.
+    """
+    if not loi_str:
+        return 15.0  # default LOI
+
+    loi_str = str(loi_str).strip().lower()
+
+    # Handle range like 20-25min
+    match = re.match(r"(\d+)\s*-\s*(\d+)", loi_str)
+    if match:
+        low, _ = map(float, match.groups())
+        return low  # take lower bound only
+
+    # Handle single number like "15", "25min", "25+"
+    match = re.search(r"(\d+)", loi_str)
+    if match:
+        return float(match.group(1))
+
+    return 15.0
+
 
 
 # =========================
@@ -598,56 +827,74 @@ class PredictCPI(APIView):
             if business_type == "b2b" and client_name == "acuity":
                 print("Running.....................BY_B2B acuity")
 
-                country_name = _normalize_country_or_market(str(request.data.get("market", "")))
-                country=find_region(country_name)
+                # country_name = _normalize_country_or_market(str(request.data.get("market", "")))
+                # country=find_region(country_name)
 
-                # If blank or unknown, force fallback to USA
-                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
-                    country = "USA"
+                # # If blank or unknown, force fallback to USA
+                # if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                #     country = "USA"
 
-                # Apply defaults for IR/LOI if not provided
-                ir_in = request.data.get("ir") or 30
-                loi_in = request.data.get("loi") or 15
+                # # Apply defaults for IR/LOI if not provided
+                # ir_in = request.data.get("ir") or 30
+                # loi_in = request.data.get("loi") or 15
 
-                price, source, meta = acuity_b2b_find_price(country,ir_in,loi_in)
-                # Step 3: generate message (pass resolved values + price)
-                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+                # price, source, meta = acuity_b2b_find_price(country,ir_in,loi_in)
+                # # Step 3: generate message (pass resolved values + price)
+                # ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
 
-                if price is not None:
+                # if price is not None:
+                #     return Response({
+                #         "status": "success",
+                #         "predicted_price": round(float(price), 2),
+                #         "source": f"b2b_acquity_{source}",
+                #         "matched_type": meta.get("matched_type"),
+                #         "matched_row": meta.get("row"),
+                #         "assumptions": final_msg  # 👈 tell user what defaults were applied
+
+                #     })
+                #Step 1: Extract countries from request (comma-separated or single)
+                raw_market = request.data.get("market", "")
+                country_list = extract_countries(raw_market)
+
+                # Fallback to USA if empty
+                if not country_list:
+                    country_list = ["USA"]
+
+                
+                results = {}
+
+                # Step 2: Loop through each country
+                for cname in country_list:
+                    ir_in = request.data.get("ir") or 30
+                    loi_in = request.data.get("loi") or 15
+                    norm_country = _normalize_country_or_market(cname)
+                    region = find_region(norm_country)
+                   
+
+                    # Fallback if unknown
+                    if not region or region.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                        region = "USA"
+
+
+                    price, source, meta = acuity_b2b_find_price(region, ir_in, loi_in)
+
+
+                    results[cname] = round(float(price), 2) if price is not None else None
+
+                    ir_in, loi_in, _,final_msg = generate_cpi_message(request, country_list, results,surveytype=None)
+
+
+                if results is not None:
+                    if len(results) == 1:
+                        # Only one country → return just the price
+                        price_str = str(list(results.values())[0])
+                    else:
+                        # Multiple countries → join key=value format
+                        price_str = ",".join(f"{k.lower()}={v}" for k, v in results.items())
+
                     return Response({
                         "status": "success",
-                        "predicted_price": round(float(price), 2),
-                        "source": f"b2b_acquity_{source}",
-                        "matched_type": meta.get("matched_type"),
-                        "matched_row": meta.get("row"),
-                        "assumptions": final_msg  # 👈 tell user what defaults were applied
-
-                    })
-                return Response({"status": "error", "message": "No matching B2B Acuity rule found", "source": f"b2b_acquity_{source}", "meta": meta}, status=404)
-
-    # -------- B2C ACUITY CASE --------
-            elif business_type == "b2c" and client_name == "acuity":
-                print("Running.....................BY_B2C acuity")
-
-                country_name = _normalize_country_or_market(str(request.data.get("market", "")))
-                country=find_region(country_name)
-
-                # If blank or unknown, force fallback to USA
-                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
-                    country = "USA"
-
-                # Apply defaults for IR/LOI if not provided
-                ir_in = request.data.get("ir") or 30
-                loi_in = request.data.get("loi") or 15
-
-                price, source, meta = acuity_b2c_find_price(country, ir_in, loi_in)
-                # Step 3: generate message (pass resolved values + price)
-                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
-
-                if price is not None:
-                    return Response({
-                        "status": "success",
-                        "predicted_price": round(float(price), 2),
+                        "predicted_price": price_str,
                         "source": f"b2c_acquity_{source}",
                         "matched_type": meta.get("matched_type"),
                         "matched_row": meta.get("row"),
@@ -655,48 +902,187 @@ class PredictCPI(APIView):
                     })
                 return Response({"status": "error", "message": "No matching B2C Acuity rule found", "source": f"b2c_acquity_{source}", "meta": meta}, status=404)
 
-            elif business_type == "b2b" and client_name and client_name.lower() != "acuity":
-                print("Running.....................BY_Clint_wise_but not acuity")
+            # -------- B2C ACUITY CASE --------
+            elif business_type == "b2c" and client_name == "acuity":
+                print("Running.....................BY_B2C acuity")
 
-                dir_flag = request.data.get("dir")
-                clevel_flag = request.data.get("clevel")
+                # country_name = _normalize_country_or_market(str(request.data.get("market", "")))
+                # country=find_region(country_name)
+
+                # # If blank or unknown, force fallback to USA
+                # if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                #     country = "USA"
+
+                # # Apply defaults for IR/LOI if not provided
+                # ir_in = request.data.get("ir") or 30
+                # loi_in = request.data.get("loi") or 15
+
+                # price, source, meta = acuity_b2c_find_price(country, ir_in, loi_in)
+                # # Step 3: generate message (pass resolved values + price)
+                # ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+                raw_market = request.data.get("market", "")
+                country_list = extract_countries(raw_market)
+
+                # Fallback to USA if empty
+                if not country_list:
+                    country_list = ["USA"]
+
                 
-                price, meta = b2b_with_client_find_price(client_name, dir_flag, clevel_flag)
-                final_msg=generate_cpi_message_clientbutnotacuity(client_name,price)
+                results = {}
+
+                # Step 2: Loop through each country
+                for cname in country_list:
+                    ir_in = request.data.get("ir") or 30
+                    loi_in = request.data.get("loi") or 15
+                    norm_country = _normalize_country_or_market(cname)
+                    region = find_region(norm_country)
+
+
+                    # Fallback if unknown
+                    if not region or region.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                        region = "USA"
+
+
+                    price, source, meta = acuity_b2c_find_price(region, ir_in, loi_in)
+
+
+                    results[cname] = round(float(price), 2) if price is not None else None
+
+                    ir_in, loi_in, _,final_msg = generate_cpi_message(request, country_list, results,surveytype=None)
+
+
+                if results is not None:
+                    if len(results) == 1:
+                        # Only one country → return just the price
+                        price_str = str(list(results.values())[0])
+                    else:
+                        # Multiple countries → join key=value format
+                        price_str = ",".join(f"{k.lower()}={v}" for k, v in results.items())
+
 
                 if price is not None:
                     return Response({
                         "status": "success",
-                        "predicted_price": round(float(price), 2),
-                        "source": "b2b_clientwise",
-                        "meta": meta,
-                        "assumptions": final_msg 
+                        "predicted_price": price_str,
+                        "source": f"b2c_acquity_{source}",
+                        "matched_type": meta.get("matched_type"),
+                        "matched_row": meta.get("row"),
+                        "assumptions": final_msg  # 👈 tell user what defaults were applied
                     })
-                return Response({"status": "error", "message": meta["message"], "source": "b2b_clientwise"}, status=404)
-                        # -------- B2B CASE --------
+                return Response({"status": "error", "message": "No matching B2C Acuity rule found", "source": f"b2c_acquity_{source}", "meta": meta}, status=404)
+
+            elif  client_name and client_name.lower() != "acuity":
+                print("Running.....................BY_Clint_wise_but not acuity")
+
+                # dir_flag = request.data.get("dir")
+                # clevel_flag = request.data.get("clevel")
+                
+                # price, meta = b2b_with_client_find_price(client_name, dir_flag, clevel_flag)
+                # final_msg=generate_cpi_message_clientbutnotacuity(client_name,price)
+                # -------- B2B CASE --------
+                # Load pipeline and lookups
+
+                
+                
+                market = request.data.get("market", "").strip().lower()
+                country_list = extract_countries(market)
+                results = {}
+
+                # Step 2: Loop through each country
+                for cname in country_list:
+                    ir = newparse_ir(request.data.get("ir") or 30)
+                    loi = newparse_loi(request.data.get("loi") or 15)
+                    business_type = business_type
+
+                    result = predict_cpi_direct(ir, loi, client_name,business_type, cname)
+
+
+                    results[cname] = round(float(result["predicted_cpi"]), 2) if result["predicted_cpi"] is not None else None
+
+                    ir_in, loi_in, _,final_msg = generate_cpi_message(request, country_list, results,surveytype=None)
+
+
+                if results is not None:
+                    if len(results) == 1:
+                        # Only one country → return just the price
+                        price_str = str(list(results.values())[0])
+                    else:
+                        # Multiple countries → join key=value format
+                        price_str = ",".join(f"{k.lower()}={v}" for k, v in results.items())
+
+            
+                if result is not None:
+                    return Response({
+                        "status": "success",
+                        "predicted_price": price_str,
+                        "assumptions": final_msg
+                        
+                    })
+                return Response({"status": "error", "message": "No matching B2B rule found"}, status=404)
+
+                # return round(float(prediction), 2)
+
             elif business_type == "b2b":
                 print("Running.....................BY_default_B2B")
 
-                country = _normalize_country_or_market(str(request.data.get("market", "")))
+                # country = _normalize_country_or_market(str(request.data.get("market", "")))
 
-                if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
-                    country = "USA"
+                # if not country or country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                #     country = "USA"
 
-                # Apply defaults for IR/LOI if not provided
+                # # Apply defaults for IR/LOI if not provided
                 
-                ir_in = parse_ir(request.data.get("ir") or 30) 
-                loi_in = parse_loi(request.data.get("loi") or 15) 
+                # ir_in = parse_ir(request.data.get("ir") or 30) 
+                # loi_in = parse_loi(request.data.get("loi") or 15) 
                 
-                print("***details...",ir_in,loi_in,country)
 
-                price, source, meta = b2b_find_price(country, ir_in, loi_in)
-                # Step 3: generate message (pass resolved values + price)
-                ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+                # price, source, meta = b2b_find_price(country, ir_in, loi_in)
+                # # Step 3: generate message (pass resolved values + price)
+                # ir_in, loi_in, country, final_msg = generate_cpi_message(request, country, price,surveytype=None)
+                raw_market = request.data.get("market", "")
+                country_list = extract_countries(raw_market)
+
+                # Fallback to USA if empty
+                if not country_list:
+                    country_list = ["USA"]
+
+                
+                results = {}
+
+                # Step 2: Loop through each country
+                for cname in country_list:
+                    ir_in = request.data.get("ir") or 30
+                    loi_in = request.data.get("loi") or 15
+                    norm_country = _normalize_country_or_market(cname)
+
+
+                    # Fallback if unknown
+                    if not norm_country or norm_country.upper() in ["UNKNOWN", "N/A", "NONE"]:
+                        norm_country = "USA"
+
+
+                    price, source, meta = b2b_find_price(norm_country, ir_in, loi_in)
+
+
+                    results[cname] = round(float(price), 2) if price is not None else None
+
+                    ir_in, loi_in, _,final_msg = generate_cpi_message(request, country_list, results,surveytype=None)
+
+
+                if results is not None:
+                    if len(results) == 1:
+                        # Only one country → return just the price
+                        price_str = str(list(results.values())[0])
+                    else:
+                        # Multiple countries → join key=value format
+                        price_str = ",".join(f"{k.lower()}={v}" for k, v in results.items())
+
+
 
                 if price is not None:
                     return Response({
                         "status": "success",
-                        "predicted_price": round(float(price), 2),
+                        "predicted_price": price_str,
                         "source": f"b2b_{source}",
                         "matched_type": meta.get("matched_type"),
                         "matched_row": meta.get("row"),
@@ -729,12 +1115,13 @@ class PredictCPI(APIView):
 
                 # 1) Exact lookup
                 key = (market, mapped_ir, mapped_loi)
+
                 if key in consumer_lookup:
                     ir_in, loi_in, country, final_msg = generate_cpi_message(request, market, consumer_lookup[key],surveytype='Consumer')
 
                     return Response({
                         "status": "success",
-                        "predicted_price": round(float(consumer_lookup[key]), 2),
+                        "predicted_price": consumer_lookup[key],
                         "source": "consumer_exact_lookup",
                         "market_used": market,
                         "mapped_ir": mapped_ir,

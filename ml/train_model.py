@@ -176,28 +176,35 @@ def train_acuity_b2c():
     print(f"✅ Acuity B2C lookup saved (rows={len(records)})")
 
 
+def _norm(s):
+    if s is None:
+        return ""
+    return str(s).strip().upper()
+
+
 def train_b2b_with_client():
-    print("📥 Loading data from survey_pricing...")
-    df = pd.read_sql("SELECT * FROM survey_pricing", engine)
+    # print("📥 Loading data from survey_pricing...")
+    # df = pd.read_sql("SELECT * FROM survey_pricing", engine)
 
-    # normalize client names
-    df['client_name'] = df['client_name'].astype(str).str.lower().str.strip()
+    # # normalize client names
+    # df['client_name'] = df['client_name'].astype(str).str.lower().str.strip()
 
-    records = []
-    for _, row in df.iterrows():
-        records.append({
-            "client_name": row['client_name'],
-            "min_cpi": float(row['min_cpi']),
-            "max_cpi": float(row['max_cpi']),
-            "dir_premium": float(row['dir_premium']),
-            "clevel_premium": float(row['clevel_premium']),
-        })
+    # records = []
+    # for _, row in df.iterrows():
+    #     records.append({
+    #         "client_name": row['client_name'],
+    #         "min_cpi": float(row['min_cpi']),
+    #         "max_cpi": float(row['max_cpi']),
+    #         "dir_premium": float(row['dir_premium']),
+    #         "clevel_premium": float(row['clevel_premium']),
+    #     })
 
-    # save lookup
-    joblib.dump(records, "ml/b2b_with_client_pricing_lookup.pkl")
-    print(f"✅ B2B with client lookup saved (rows={len(records)})")
-
-
+    # # save lookup
+    # joblib.dump(records, "ml/b2b_with_client_pricing_lookup.pkl")
+    # print(f"✅ B2B with client lookup saved (rows={len(records)})")
+    df = pd.read_sql("SELECT * FROM bid_details_with_client_wise", engine)
+    joblib.dump(df, "ml/bid_details_with_client_wise.pkl")
+    print("✅ Saved ml/bid_details_with_client_wise.pkl")
 
 if __name__ == "__main__":
     train_consumer()

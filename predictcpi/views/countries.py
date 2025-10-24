@@ -298,5 +298,7 @@ countries = {
   "EH": {"id": 220, "name": "Western Sahara", "phonecode": "212", "region": "MENA"},
   "YE": {"id": 221, "name": "Yemen", "phonecode": "967", "region": "MENA"},
   "ZM": {"id": 222, "name": "Zambia", "phonecode": "260", "region": "MENA"},
-  "ZW": {"id": 223, "name": "Zimbabwe", "phonecode": "263", "region": "MENA"}
+  "ZW": {"id": 223, "name": "Zimbabwe", "phonecode": "263", "region": "MENA"},
+  "ES": {"id": 223, "name": "Spain", "phonecode": "2632", "region": "EU"}
+
 }

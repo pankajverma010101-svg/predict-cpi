@@ -148,9 +148,9 @@ known_countries = [
     "Tunisia", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates",
     "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Yemen",
     "Zambia", "Zimbabwe",
-
-    "USA",          # list of countries already saved in DB
-    "United States", 
+    "US","IN","Latim America",
+    "USA", "U.S.A",       # list of countres already saved in DB
+    "United States","Africa","Asia","U.K",
     "India", "United Kingdom", "Canada", "Germany",
     "France", "Australia", "Brazil", "China", "Japan", "Italy", "Spain", "Russia", "Mexico", "portugal",
     "South Africa", "Indonesia", "Netherlands", "Sweden", "Switzerland", "Turkey", "South Korea",
@@ -159,16 +159,53 @@ known_countries = [
     "Sao Paulo", "London", "Austin", "NYC (tri-state area)", "NYC", "Chicago", "San Francisco",
     "UK", "UAE",
     "CA","AU", "BR", "CL", "CN", "ES", "FR", "JP", "SG", "MX", "KSA", "SW",
-    "GER", "BRA",
-    # "US",     # also present in sentences
-    # "IN",      # also present in sentences
-    # "IT",      # also present in sentences
-
-    "European Union", # list of international country groups
+    "GER", "BRA","IND",
+    "European Union", 
     "G7", "G20", "BRICS", "OPEC", "SAARC", "NATO",  
+    "europe",           
+    "africa", "antartica", "asia", "north america", "south america", "oceania","AF","AL","DZ","AS","AD","AO","AI","AQ","AG","AR","AM","AW","AU","AT","AZ",
+    "BS","BH","BD","BB","BY","BE","BZ","BJ","BM","BT","BO","BA","BW","BV","BR",
+    "IO","BN","BG","BF","BI","KH","CM","CA","CV","KY","CF","TD","CL","CN","CX",
+    "CC","CO","KM","CG","CD","CK","CR","CI","HR","CU","CY","CZ","DK","DJ","DM",
+    "DO","TP","EC","EG","SV","GQ","ER","EE","ET","XA","FK","FO","FJ","FI","FR",
+    "GF","PF","TF","GA","GM","GE","DE","GH","GI","GR","GL","GD","GP","GU","GT",
+    "XU","GN","GW","GY","HT","HM","HN","HK","HU","IS","IN","ID","IR","IQ","IE",
+    "IL","IT","JM","JP","XJ","JO","KZ","KE","KI","KP","KR","KW","KG","LA","LV",
+    "LB","LS","LR","LY","LI","LT","LU","MO","MK","MG","MW","MY","MV","ML","MT",
+    "XM","MH","MQ","MR","MU","YT","MX","FM","MD","MC","MN","MS","MA","MZ","MM",
+    "NA","NR","NP","AN","NL","NC","NZ","NI","NE","NG","NU","NF","MP","NO","OM",
+    "PK","PW","PS","PA","PG","PY","PE","PH","PN","PL","PT","PR","QA","RE","RO",
+    "RU","RW","SH","KN","LC","PM","VC","WS","SM","ST","SA","SN","RS","SC","SL",
+    "SG","SK","SI","XG","SB","SO","ZA","GS","SS","ES","LK","SD","SR","SJ","SZ",
+    "SE","CH","SY","TW","TJ","TZ","TH","TG","TK","TO","TT","TN","TR","TM","TC",
+    "TV","UG","UA","AE","GB","US","UM","UY","UZ","VU","VA","VE","VN","VG","VI",
+    "WF","EH","YE","YU","ZM","ZW",
+    "Afghanistan","Albania","Algeria","American Samoa","Andorra","Angola","Anguilla","Antarctica","Antigua And Barbuda","Argentina",
+    "Armenia","Aruba","Australia","Austria","Azerbaijan","Bahamas The","Bahrain","Bangladesh","Barbados","Belarus",
+    "Belgium","Belize","Benin","Bermuda","Bhutan","Bolivia","Bosnia and Herzegovina","Botswana","Bouvet Island","Brazil",
+    "British Indian Ocean Territory","Brunei","Bulgaria","Burkina Faso","Burundi","Cambodia","Cameroon","Canada","Cape Verde","Cayman Islands",
+    "Central African Republic","Chad","Chile","China","Christmas Island","Cocos (Keeling) Islands","Colombia","Comoros","Republic Of The Congo","Democratic Republic Of The Congo",
+    "Cook Islands","Costa Rica","Cote D'Ivoire (Ivory Coast)","Croatia (Hrvatska)","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica",
+    "Dominican Republic","East Timor","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Ethiopia","External Territories of Australia",
+    "Falkland Islands","Faroe Islands","Fiji Islands","Finland","France","French Guiana","French Polynesia","French Southern Territories","Gabon","Gambia The",
+    "Georgia","Germany","Ghana","Gibraltar","Greece","Greenland","Grenada","Guadeloupe","Guam","Guatemala",
+    "Guernsey and Alderney","Guinea","Guinea-Bissau","Guyana","Haiti","Heard and McDonald Islands","Honduras","Hong Kong S.A.R.","Hungary","Iceland",
+    "India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jersey",
+    "Jordan","Kazakhstan","Kenya","Kiribati","Korea North","Korea South","Kuwait","Kyrgyzstan","Laos","Latvia",
+    "Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Macau S.A.R.","Macedonia","Madagascar",
+    "Malawi","Malaysia","Maldives","Mali","Malta","Man (Isle of)","Marshall Islands","Martinique","Mauritania","Mauritius",
+    "Mayotte","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montserrat","Morocco","Mozambique","Myanmar",
+    "Namibia","Nauru","Nepal","Netherlands Antilles","Netherlands The","New Caledonia","New Zealand","Nicaragua","Niger","Nigeria",
+    "Niue","Norfolk Island","Northern Mariana Islands","Norway","Oman","Pakistan","Palau","Palestinian Territory Occupied","Panama","Papua new Guinea",
+    "Paraguay","Peru","Philippines","Pitcairn Island","Poland","Portugal","Puerto Rico","Qatar","Reunion","Romania",
+    "Russia","Rwanda","Saint Helena","Saint Kitts And Nevis","Saint Lucia","Saint Pierre and Miquelon","Saint Vincent And The Grenadines","Samoa","San Marino","Sao Tome and Principe",
+    "Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Smaller Territories of the UK","Solomon Islands",
+    "Somalia","South Africa","South Georgia","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Svalbard And Jan Mayen Islands","Swaziland",
+    "Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Togo","Tokelau","Tonga",
+    "Trinidad And Tobago","Tunisia","Turkey","Turkmenistan","Turks And Caicos Islands","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom",
+    "United States","United States Minor Outlying Islands","Uruguay","Uzbekistan","Vanuatu","Vatican City State (Holy See)","Venezuela","Vietnam","Virgin Islands (British)","Virgin Islands (US)",
+    "Wallis And Futuna Islands","Western Sahara","Yemen","Yugoslavia","Zambia","Zimbabwe"
 
-    "europe",           # list of continents
-    "africa", "antartica", "asia", "north america", "south america", "oceania",
    
 ]
 
@@ -1038,11 +1075,15 @@ def extract_value_without_key(text):
     text_lower = text.lower()
     lines = text.splitlines()
 
+
     # --- Country Fix ---
     found_countries = set()
     for country in known_countries:
+
         # Match as whole word using word boundaries (\b)
-        pattern = re.compile(r'\b' + re.escape(country) + r'\b', re.IGNORECASE)
+        # pattern = re.compile(r'\b' + re.escape(country) + r'\b', re.IGNORECASE)
+        pattern = re.compile(r'(?<!\w)' + re.escape(country) + r'(?!\w)')
+
         if pattern.search(text):
             found_countries.add(country)
 

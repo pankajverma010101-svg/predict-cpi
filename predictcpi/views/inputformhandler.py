@@ -288,7 +288,6 @@ class SubmitTextAPI(APIView):
 
             master_data["business_type"]  = business_type
 
-            # print("final master data",master_data)
 
              # Predict CPI
             factory = APIRequestFactory()
